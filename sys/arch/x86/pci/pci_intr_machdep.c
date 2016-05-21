@@ -322,8 +322,13 @@ pci_intr_establish_xname(pci_chipset_tag_t pc, pci_intr_handle_t ih,
 	}
 #endif
 
+#ifdef HYPERV_INTERRUPT_HACK
+	return intr_establish_xname(irq, pic, pin, IST_EDGE, level, func, arg,
+	    mpsafe, xname);
+#else
 	return intr_establish_xname(irq, pic, pin, IST_LEVEL, level, func, arg,
 	    mpsafe, xname);
+#endif
 }
 
 void *
