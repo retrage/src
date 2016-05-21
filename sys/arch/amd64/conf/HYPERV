@@ -1326,3 +1326,5 @@ options 	PAX_ASLR=1		# PaX Address Space Layout Randomization
 # Hyper-V
 
 options 	HYPERV_INTERRUPT_HACK
+
+vmbus*		at acpi?

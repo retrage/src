@@ -218,3 +218,4 @@ attach	applesmc at acpinodebus with apple_smc_acpi
 file	dev/acpi/apple_smc_acpi.c	apple_smc_acpi
 
 include	"dev/acpi/wmi/files.wmi"
+include	"dev/acpi/vmbus/files.vmbus"
