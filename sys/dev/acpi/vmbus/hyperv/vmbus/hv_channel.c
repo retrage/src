@@ -27,7 +27,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/sys/dev/hyperv/vmbus/hv_channel.c 300102 2016-05-18 03:19:53Z sephe $");
+__FBSDID("$FreeBSD: head/sys/dev/hyperv/vmbus/hv_channel.c 300646 2016-05-25 04:59:20Z sephe $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -202,7 +202,8 @@ hv_vmbus_channel_open(
 
 	vmbus_on_channel_open(new_channel);
 
-	new_channel->rxq = hv_vmbus_g_context.hv_event_queue[new_channel->target_cpu];
+	new_channel->rxq = VMBUS_PCPU_GET(vmbus_get_softc(), event_tq,
+	    new_channel->target_cpu);
 	TASK_INIT(&new_channel->channel_task, 0, VmbusProcessChannelEvent, new_channel);
 
 	/* Allocate the ring buffer */
