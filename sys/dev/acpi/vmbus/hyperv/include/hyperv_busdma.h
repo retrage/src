@@ -33,6 +33,8 @@ struct hyperv_dma {
 	bus_addr_t	hv_paddr;
 	bus_dma_tag_t	hv_dtag;
 	bus_dmamap_t	hv_dmap;
+
+	bus_dma_tag_t	hv_parent_dtag;
 };
 
 void	hyperv_dma_map_paddr(void *arg, bus_dma_segment_t *segs, int nseg,

@@ -25,67 +25,88 @@
  */
 
 #include <sys/cdefs.h>
+/*
 __FBSDID("$FreeBSD: head/sys/dev/hyperv/vmbus/hyperv_busdma.c 300568 2016-05-24 05:26:52Z sephe $");
+*/
 
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
 
-#include <machine/bus.h>
+#include <dev/acpi/vmbus/hyperv/include/hyperv_busdma.h>
 
-#include <dev/hyperv/include/hyperv_busdma.h>
-
-#define HYPERV_DMA_MASK	(BUS_DMA_WAITOK | BUS_DMA_NOWAIT | BUS_DMA_ZERO)
-
-void
-hyperv_dma_map_paddr(void *arg, bus_dma_segment_t *segs, int nseg, int error)
-{
-	bus_addr_t *paddr = arg;
-
-	if (error)
-		return;
-
-	KASSERT(nseg == 1, ("too many segments %d!", nseg));
-	*paddr = segs->ds_addr;
-}
+/*
+ * missing BUS_DMA_ZERO
+ */
+#define HYPERV_DMA_MASK	(BUS_DMA_WAITOK | BUS_DMA_NOWAIT)
 
 void *
 hyperv_dmamem_alloc(bus_dma_tag_t parent_dtag, bus_size_t alignment,
     bus_addr_t boundary, bus_size_t size, struct hyperv_dma *dma, int flags)
 {
+	bus_dma_segment_t segs;
 	void *ret;
+	int rsegs;
 	int error;
 
-	error = bus_dma_tag_create(parent_dtag, /* parent */
-	    alignment,		/* alignment */
-	    boundary,		/* boundary */
-	    BUS_SPACE_MAXADDR,	/* lowaddr */
-	    BUS_SPACE_MAXADDR,	/* highaddr */
-	    NULL, NULL,		/* filter, filterarg */
-	    size,		/* maxsize */
+	ret = NULL;
+
+	error = bus_dmamap_create(dma->hv_dtag, /* tag */
+	    size,		/* size */
 	    1,			/* nsegments */
 	    size,		/* maxsegsize */
+	    boundary,		/* boundary */
 	    0,			/* flags */
-	    NULL,		/* lockfunc */
-	    NULL,		/* lockfuncarg */
-	    &dma->hv_dtag);
+	    &dma->hv_dmap);
 	if (error)
 		return NULL;
 
-	error = bus_dmamem_alloc(dma->hv_dtag, &ret,
-	    (flags & HYPERV_DMA_MASK) | BUS_DMA_COHERENT, &dma->hv_dmap);
+	error = bus_dmamem_alloc(dma->hv_dtag, /* tag */
+	    size,			/* size */
+	    alignment,			/* alignment */
+	    boundary,			/* boundary */
+	    &segs,			/* segs */
+	    1,				/* nsegs */
+	    &rsegs,			/* rsegs */
+	    (flags & HYPERV_DMA_MASK));	/* flags */
 	if (error) {
-		bus_dma_tag_destroy(dma->hv_dtag);
+		bus_dmamap_destroy(dma->hv_dtag, dma->hv_dmap);
 		return NULL;
 	}
 
-	error = bus_dmamap_load(dma->hv_dtag, dma->hv_dmap, ret, size,
-	    hyperv_dma_map_paddr, &dma->hv_paddr, BUS_DMA_NOWAIT);
+	error = bus_dmamem_map(dma->hv_dtag, /* tag */
+	    &segs,			/* segs */
+	    1,				/* nsegs */
+	    size,			/* size */
+	    ret,			/* kvap */
+	    (flags & (HYPERV_DMA_MASK | BUS_DMA_COHERENT)));
 	if (error) {
-		bus_dmamem_free(dma->hv_dtag, ret, dma->hv_dmap);
-		bus_dma_tag_destroy(dma->hv_dtag);
+		bus_dmamem_free(dma->hv_dtag, &segs, rsegs);
+		bus_dmamap_destroy(dma->hv_dtag, dma->hv_dmap);
 		return NULL;
 	}
+
+	error = bus_dmamap_load(dma->hv_dtag, /* tag */
+	    dma->hv_dmap,	/* dmam */
+	    ret,		/* buf */
+	    size,		/* buflen */
+	    NULL,		/* p */
+	    BUS_DMA_NOWAIT);
+	if (error) {
+		bus_dmamem_unmap(dma->hv_dtag, ret, size);
+		bus_dmamem_free(dma->hv_dtag, &segs, rsegs);
+		bus_dmamap_destroy(dma->hv_dtag, dma->hv_dmap);
+		return NULL;
+	}
+	/* XXX missing BUS_DMA_ZERO */
+	memset(ret, 0, size);
+	bus_dmamap_sync(dma->hv_dtag, dma->hv_dmap, 0, size, BUS_DMASYNC_PREWRITE);
+
+	/* hyperv_dma_map_paddr */
+	dma->hv_paddr = dma->hv_dmap->dm_segs[0].ds_addr;
+
+	dma->hv_parent_dtag = parent_dtag;
+
 	return ret;
 }
 
@@ -93,6 +114,6 @@ void
 hyperv_dmamem_free(struct hyperv_dma *dma, void *ptr)
 {
 	bus_dmamap_unload(dma->hv_dtag, dma->hv_dmap);
-	bus_dmamem_free(dma->hv_dtag, ptr, dma->hv_dmap);
-	bus_dma_tag_destroy(dma->hv_dtag);
+	bus_dmamem_free(dma->hv_dtag, ptr, 1);
+	bus_dmamap_destroy(dma->hv_dtag, dma->hv_dmap);
 }
