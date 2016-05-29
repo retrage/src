@@ -42,19 +42,25 @@
 #include <sys/queue.h>
 #include <sys/malloc.h>
 #include <sys/kthread.h>
+/*
 #include <sys/taskqueue.h>
+*/
 #include <sys/systm.h>
 #include <sys/lock.h>
+/*
 #include <sys/sema.h>
 #include <sys/smp.h>
+*/
 #include <sys/mutex.h>
 #include <sys/bus.h>
-#include <vm/vm.h>
-#include <vm/vm_param.h>
-#include <vm/pmap.h>
+#include <uvm/uvm.h>
+#include <uvm/uvm_param.h>
+#include <machine/pmap.h>
 
+/*
 #include <amd64/include/xen/synch_bitops.h>
 #include <amd64/include/atomic.h>
+*/
 
 typedef uint8_t	hv_bool_uint8_t;
 
@@ -574,7 +580,7 @@ typedef void *hv_vmbus_handle;
 #endif /* CONTAINING_RECORD */
 
 
-#define container_of(ptr, type, member) ({				\
+#define hv_container_of(ptr, type, member) ({				\
 		__typeof__( ((type *)0)->member ) *__mptr = (ptr);	\
 		(type *)( (char *)__mptr - offsetof(type,member) );})
 
@@ -585,12 +591,13 @@ enum {
 	HV_VMBUS_IVAR_DEVCTX
 };
 
+/* TODO:
 #define HV_VMBUS_ACCESSOR(var, ivar, type) \
 		__BUS_ACCESSOR(vmbus, var, HV_VMBUS, ivar, type)
 
 HV_VMBUS_ACCESSOR(type, TYPE,  const char *)
 HV_VMBUS_ACCESSOR(devctx, DEVCTX,  struct hv_device *)
-
+*/
 
 /*
  * Common defines for Hyper-V ICs
@@ -685,7 +692,7 @@ typedef struct {
 typedef struct {
 	hv_vmbus_ring_buffer*	ring_buffer;
 	uint32_t		ring_size;	/* Include the shared header */
-	struct mtx		ring_lock;
+	kmutex_t		ring_lock;
 	uint32_t		ring_data_size;	/* ring_size */
 	uint32_t		ring_data_start_offset;
 } hv_vmbus_ring_buffer_info;
@@ -754,8 +761,9 @@ typedef struct hv_vmbus_channel {
 	 */
 	hv_vmbus_ring_buffer_info	inbound;
 
-	struct taskqueue *		rxq;
-	struct task			channel_task;
+	struct workqueue *		rxq;
+	/* TODO: */
+	struct work *			channel_work;
 	hv_vmbus_pfn_channel_callback	on_channel_callback;
 	void*				channel_callback_context;
 
@@ -803,7 +811,7 @@ typedef struct hv_vmbus_channel {
 	 * response on the same channel.
 	 */
 
-	struct mtx			sc_lock;
+	kmutex_t			sc_lock;
 
 	/*
 	 * Link list of all the multi-channels if this is a primary channel
@@ -918,7 +926,7 @@ static inline unsigned long
 hv_get_phys_addr(void *virt)
 {
 	unsigned long ret;
-	ret = (vtophys(virt) | ((vm_offset_t) virt & PAGE_MASK));
+	ret = (vtophys((vaddr_t) virt) | ((vaddr_t) virt & PAGE_MASK));
 	return (ret);
 }
 

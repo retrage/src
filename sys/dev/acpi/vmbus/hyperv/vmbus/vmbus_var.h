@@ -30,8 +30,8 @@
 #define _VMBUS_VAR_H_
 
 #include <sys/param.h>
-#include <sys/bus_dma.h>
-#include <dev/hyperv/include/hyperv_busdma.h>
+#include <sys/bus.h>
+#include <dev/acpi/vmbus/hyperv/include/hyperv_busdma.h>
 
 struct vmbus_pcpu_data {
 	u_long			*intr_cnt;	/* Hyper-V interrupt counter */
@@ -43,14 +43,15 @@ struct vmbus_pcpu_data {
 	/* Rarely used fields */
 	struct hyperv_dma	message_dma;	/* busdma glue */
 	struct hyperv_dma	event_flag_dma;	/* busdma glue */
-	struct taskqueue	*event_tq;	/* event taskq */
-	struct taskqueue	*message_tq;	/* message taskq */
-	struct task		message_task;	/* message task */
+	struct workqueue	*event_tq;	/* event taskq */
+	struct workqueue	*message_tq;	/* message taskq */
+	/* TODO */
+	struct work		*message_task;	/* message task */
 } __aligned(CACHE_LINE_SIZE);
 
 struct vmbus_softc {
 	void			(*vmbus_event_proc)(struct vmbus_softc *, int);
-	struct vmbus_pcpu_data	vmbus_pcpu[MAXCPU];
+	struct vmbus_pcpu_data	vmbus_pcpu[MAXCPUS];
 
 	/* Rarely used fields */
 	device_t		vmbus_dev;
@@ -81,5 +82,10 @@ vmbus_get_device(void)
 void	vmbus_on_channel_open(const struct hv_vmbus_channel *);
 void	vmbus_event_proc(struct vmbus_softc *, int);
 void	vmbus_event_proc_compat(struct vmbus_softc *, int);
+
+/* From sys/kern/subr_param.c in FreeBSD */
+extern int vm_guest;
+
+enum VM_GUEST {VM_GUEST_NO = 0, VM_GUEST_VM, VM_GUEST_HV };
 
 #endif	/* !_VMBUS_VAR_H_ */

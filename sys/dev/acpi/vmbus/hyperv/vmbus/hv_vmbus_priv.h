@@ -34,9 +34,9 @@
 #include <sys/param.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
-#include <sys/sema.h>
+#include <sys/condvar.h>
 
-#include <dev/hyperv/include/hyperv.h>
+#include <dev/acpi/vmbus/hyperv/include/hyperv.h>
 
 
 /*
@@ -138,10 +138,10 @@ typedef struct hv_vmbus_channel_msg_info {
 	/*
 	 * Synchronize the request/response if
 	 * needed.
-	 * KYS: Use a semaphore for now.
+	 * KYS: Use a condvar for now.
 	 * Not perf critical.
 	 */
-	struct sema				wait_sema;
+	kcondvar_t				wait_sema;
 	hv_vmbus_channel_msg_response		response;
 	uint32_t				message_size;
 	/**
@@ -341,13 +341,13 @@ typedef struct {
 	void					*monitor_page_1;
 	void					*monitor_page_2;
 	TAILQ_HEAD(, hv_vmbus_channel_msg_info)	channel_msg_anchor;
-	struct mtx				channel_msg_lock;
+	kmutex_t				channel_msg_lock;
 	/**
 	 * List of primary channels. Sub channels will be linked
 	 * under their primary channel.
 	 */
 	TAILQ_HEAD(, hv_vmbus_channel)		channel_anchor;
-	struct mtx				channel_lock;
+	kmutex_t				channel_lock;
 
 	/**
 	 * channel table for fast lookup through id.
