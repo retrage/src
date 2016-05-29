@@ -32,12 +32,19 @@
 #include <sys/mutex.h>
 #include <sys/sysctl.h>
 
+#include <machine/cpufunc.h>
+
 #include "hv_vmbus_priv.h"
 
 /* Amount of space to write to */
 #define	HV_BYTES_AVAIL_TO_WRITE(r, w, z) ((w) >= (r))? \
 				((z) - ((w) - (r))):((r) - (w))
 
+#define	mb()	x86_mfence()
+#define	rmb()	x86_lfence()
+#define	wmb()	x86_sfence()
+
+/* TODO: port sysctl
 static int
 hv_rbi_sysctl_stats(SYSCTL_HANDLER_ARGS)
 {
@@ -79,6 +86,8 @@ hv_ring_buffer_stat(
 	    CTLTYPE_STRING|CTLFLAG_RD|CTLFLAG_MPSAFE, rbi, 0,
 	    hv_rbi_sysctl_stats, "A", desc);
 }
+*/
+
 /**
  * @brief Get number of bytes available to read and to write to
  * for the specified ring buffer
@@ -289,7 +298,7 @@ hv_vmbus_ring_buffer_init(
 	ring_info->ring_size = buffer_len;
 	ring_info->ring_data_size = buffer_len - sizeof(hv_vmbus_ring_buffer);
 
-	mtx_init(&ring_info->ring_lock, "vmbus ring buffer", NULL, MTX_SPIN);
+	mutex_init(&ring_info->ring_lock, MUTEX_DEFAULT, IPL_HIGH);
 
 	return (0);
 }
@@ -299,7 +308,7 @@ hv_vmbus_ring_buffer_init(
  */
 void hv_ring_buffer_cleanup(hv_vmbus_ring_buffer_info* ring_info) 
 {
-	mtx_destroy(&ring_info->ring_lock);
+	mutex_destroy(&ring_info->ring_lock);
 }
 
 /**
@@ -327,7 +336,7 @@ hv_ring_buffer_write(
 
 	total_bytes_to_write += sizeof(uint64_t);
 
-	mtx_lock_spin(&out_ring_info->ring_lock);
+	mutex_spin_enter(&out_ring_info->ring_lock);
 
 	get_ring_buffer_avail_bytes(out_ring_info, &byte_avail_to_read,
 	    &byte_avail_to_write);
@@ -339,8 +348,7 @@ hv_ring_buffer_write(
 	 */
 
 	if (byte_avail_to_write <= total_bytes_to_write) {
-
-	    mtx_unlock_spin(&out_ring_info->ring_lock);
+	    mutex_spin_exit(&out_ring_info->ring_lock);
 	    return (EAGAIN);
 	}
 
@@ -376,7 +384,7 @@ hv_ring_buffer_write(
 	 */
 	set_next_write_location(out_ring_info, next_write_location);
 
-	mtx_unlock_spin(&out_ring_info->ring_lock);
+	mutex_spin_exit(&out_ring_info->ring_lock);
 
 	*need_sig = hv_ring_buffer_needsig_on_write(old_write_location,
 	    out_ring_info);
@@ -397,7 +405,7 @@ hv_ring_buffer_peek(
 	uint32_t bytesAvailToRead;
 	uint32_t nextReadLocation = 0;
 
-	mtx_lock_spin(&in_ring_info->ring_lock);
+	mutex_spin_enter(&in_ring_info->ring_lock);
 
 	get_ring_buffer_avail_bytes(in_ring_info, &bytesAvailToRead,
 		&bytesAvailToWrite);
@@ -406,7 +414,7 @@ hv_ring_buffer_peek(
 	 * Make sure there is something to read
 	 */
 	if (bytesAvailToRead < buffer_len) {
-	    mtx_unlock_spin(&in_ring_info->ring_lock);
+	    mutex_spin_exit(&in_ring_info->ring_lock);
 	    return (EAGAIN);
 	}
 
@@ -418,7 +426,7 @@ hv_ring_buffer_peek(
 	nextReadLocation = copy_from_ring_buffer(
 		in_ring_info, (char *)buffer, buffer_len, nextReadLocation);
 
-	mtx_unlock_spin(&in_ring_info->ring_lock);
+	mutex_spin_exit(&in_ring_info->ring_lock);
 
 	return (0);
 }
@@ -441,7 +449,7 @@ hv_ring_buffer_read(
 	if (buffer_len <= 0)
 	    return (EINVAL);
 
-	mtx_lock_spin(&in_ring_info->ring_lock);
+	mutex_spin_enter(&in_ring_info->ring_lock);
 
 	get_ring_buffer_avail_bytes(
 	    in_ring_info, &bytes_avail_to_read,
@@ -451,7 +459,7 @@ hv_ring_buffer_read(
 	 * Make sure there is something to read
 	 */
 	if (bytes_avail_to_read < buffer_len) {
-	    mtx_unlock_spin(&in_ring_info->ring_lock);
+	    mutex_spin_exit(&in_ring_info->ring_lock);
 	    return (EAGAIN);
 	}
 
@@ -483,7 +491,7 @@ hv_ring_buffer_read(
 	 */
 	set_next_read_location(in_ring_info, next_read_location);
 
-	mtx_unlock_spin(&in_ring_info->ring_lock);
+	mutex_spin_exit(&in_ring_info->ring_lock);
 
 	return (0);
 }
