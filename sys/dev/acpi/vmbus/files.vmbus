@@ -5,3 +5,4 @@ file	dev/acpi/vmbus/vmbus.c		vmbus
 file	dev/acpi/vmbus/hyperv/vmbus/hv_hv.c		vmbus
 file	dev/acpi/vmbus/hyperv/vmbus/hv_ring_buffer.c	vmbus
 file	dev/acpi/vmbus/hyperv/vmbus/hyperv_busdma.c	vmbus
+file	dev/acpi/vmbus/hyperv/vmbus/hv_sema.c		vmbus
