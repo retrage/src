@@ -278,8 +278,8 @@ hyperv_identify(void)
 	return (true);
 }
 
-static void
-hyperv_init(void *dummy __unused)
+void
+hyperv_init(void)
 {
 	if (!hyperv_identify()) {
 		/* Not Hyper-V; reset guest id to the generic one. */
@@ -309,8 +309,8 @@ hypercall_memfree(void)
 	hypercall_context.hc_addr = NULL;
 }
 
-static void
-hypercall_create(void *arg __unused)
+void
+hypercall_create(void)
 {
 	uint64_t hc, hc_orig;
 
@@ -358,8 +358,8 @@ hypercall_create(void *arg __unused)
 SYSINIT(hypercall_ctor, SI_SUB_DRIVERS, SI_ORDER_FIRST, hypercall_create, NULL);
 */
 
-static void
-hypercall_destroy(void *arg __unused)
+void
+hypercall_destroy(void)
 {
 	uint64_t hc;
 
