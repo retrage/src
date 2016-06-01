@@ -34,8 +34,8 @@
 #include <sys/param.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
-#include <sys/condvar.h>
 
+#include <dev/acpi/vmbus/hyperv/vmbus/hv_sema.h>
 #include <dev/acpi/vmbus/hyperv/include/hyperv.h>
 
 
@@ -138,10 +138,10 @@ typedef struct hv_vmbus_channel_msg_info {
 	/*
 	 * Synchronize the request/response if
 	 * needed.
-	 * KYS: Use a condvar for now.
+	 * KYS: Use a semafor now.
 	 * Not perf critical.
 	 */
-	kcondvar_t				wait_sema;
+	struct hv_sema				wait_sema;
 	hv_vmbus_channel_msg_response		response;
 	uint32_t				message_size;
 	/**
@@ -550,5 +550,12 @@ void			hv_et_intr(struct trapframe*);
 
 /* Wait for device creation */
 void			vmbus_scan(void);
+
+/* Hypercall create/destroy interfaces */
+void		hyperv_init(void);
+void		hypercall_create(void);
+void		hypercall_destroy(void);
+
+
 
 #endif  /* __HYPERV_PRIV_H__ */

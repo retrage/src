@@ -29,6 +29,7 @@
 #ifndef _VMBUS_VAR_H_
 #define _VMBUS_VAR_H_
 
+#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <dev/acpi/vmbus/hyperv/include/hyperv_busdma.h>
@@ -87,5 +88,60 @@ void	vmbus_event_proc_compat(struct vmbus_softc *, int);
 extern int vm_guest;
 
 enum VM_GUEST {VM_GUEST_NO = 0, VM_GUEST_VM, VM_GUEST_HV };
+
+/* From sys/amd64/include/xen/synch_bitops.h in FreeBSD */
+
+#define ADDR (*(volatile long *) addr)
+
+static __inline__ void synch_set_bit(int nr, volatile void * addr)
+{
+	__asm__ __volatile__ (
+	"lock btsl %1,%0"
+	: "=m" (ADDR) : "Ir" (nr) : "memory" );
+}
+
+#if defined(MULTIPROCESSOR) || !defined(_KERNEL)
+#define MPLOCKED "lock ;"
+#else
+#define MPLOCKED
+#endif
+
+/* From sys/amd64/include/atomic.h in FreeBSD */
+static __inline int
+atomic_testandclear_int(volatile u_int *p, u_int v)
+{
+	u_char res;
+
+	__asm __volatile(
+	"	" MPLOCKED "		"
+	"	btrl	%2,%1 ;		"
+	"	setc	%0 ;		"
+	"# atomic_testandclear_int"
+	: "=q" (res),			/* 0 */
+	  "+m" (*p)			/* 1 */
+	: "Ir" (v & 0x1f)		/* 2 */
+	: "cc");
+	return (res);
+}
+
+/* Requires CMPXCHG */
+/* From sys/amd64/include/atomic.h in FreeBSD */
+static __inline int
+atomic_cmpset_int(volatile u_int *dst, u_int expect, u_int src)
+{
+	u_char res;
+
+	__asm __volatile(
+	"	" MPLOCKED "		"
+	"	cmpxchgl %3,%1 ;	"
+	"       sete	%0 ;		"
+	"# atomic_cmpset_int"
+	: "=q" (res),			/* 0 */
+	  "+m" (*dst),			/* 1 */
+  	  "+a" (expect)			/* 2 */
+  	: "r" (src)			/* 3 */
+	: "memory", "cc");
+	return (res);
+}
 
 #endif	/* !_VMBUS_VAR_H_ */

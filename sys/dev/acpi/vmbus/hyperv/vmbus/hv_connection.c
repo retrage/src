@@ -32,14 +32,23 @@
 #include <sys/systm.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/atomic.h>
+#include <sys/workqueue.h>
+#include <sys/bitops.h>
+/* For bootverbose */
+#include <sys/reboot.h>
+/*
 #include <machine/bus.h>
 #include <machine/atomic.h>
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
+*/
 
-#include <dev/hyperv/vmbus/hv_vmbus_priv.h>
-#include <dev/hyperv/vmbus/vmbus_var.h>
+#include <dev/acpi/vmbus/hyperv/vmbus/hv_sema.h>
+
+#include <dev/acpi/vmbus/hyperv/vmbus/hv_vmbus_priv.h>
+#include <dev/acpi/vmbus/hyperv/vmbus/vmbus_var.h>
 
 /*
  * Globals
@@ -74,16 +83,16 @@ hv_vmbus_get_next_version(uint32_t current_ver)
  */
 static int
 hv_vmbus_negotiate_version(hv_vmbus_channel_msg_info *msg_info,
-	uint32_t version)
+	uint32_t hv_version)
 {
 	int					ret = 0;
 	hv_vmbus_channel_initiate_contact	*msg;
 
-	sema_init(&msg_info->wait_sema, 0, "Msg Info Sema");
+	hv_sema_init(&msg_info->wait_sema, 0, "Msg Info Sema");
 	msg = (hv_vmbus_channel_initiate_contact*) msg_info->msg;
 
 	msg->header.message_type = HV_CHANNEL_MESSAGE_INITIATED_CONTACT;
-	msg->vmbus_version_requested = version;
+	msg->vmbus_version_requested = hv_version;
 
 	msg->interrupt_page = hv_get_phys_addr(
 		hv_vmbus_g_connection.interrupt_page);
@@ -98,40 +107,40 @@ hv_vmbus_negotiate_version(hv_vmbus_channel_msg_info *msg_info,
 	 * Add to list before we send the request since we may receive the
 	 * response before returning from this routine
 	 */
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 
 	TAILQ_INSERT_TAIL(
 		&hv_vmbus_g_connection.channel_msg_anchor,
 		msg_info,
 		msg_list_entry);
 
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 
 	ret = hv_vmbus_post_message(
 		msg,
 		sizeof(hv_vmbus_channel_initiate_contact));
 
 	if (ret != 0) {
-		mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+		mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 		TAILQ_REMOVE(
 			&hv_vmbus_g_connection.channel_msg_anchor,
 			msg_info,
 			msg_list_entry);
-		mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+		mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 		return (ret);
 	}
 
 	/**
 	 * Wait for the connection response
 	 */
-	ret = sema_timedwait(&msg_info->wait_sema, 5 * hz); /* KYS 5 seconds */
+	ret = hv_sema_timedwait(&msg_info->wait_sema, 5 * hz); /* KYS 5 seconds */
 
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_REMOVE(
 		&hv_vmbus_g_connection.channel_msg_anchor,
 		msg_info,
 		msg_list_entry);
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 
 	/**
 	 * Check if successful
@@ -152,7 +161,7 @@ int
 hv_vmbus_connect(void)
 {
 	int					ret = 0;
-	uint32_t				version;
+	uint32_t				hv_version;
 	hv_vmbus_channel_msg_info*		msg_info = NULL;
 
 	/**
@@ -168,12 +177,10 @@ hv_vmbus_connect(void)
 	hv_vmbus_g_connection.connect_state = HV_CONNECTING;
 
 	TAILQ_INIT(&hv_vmbus_g_connection.channel_msg_anchor);
-	mtx_init(&hv_vmbus_g_connection.channel_msg_lock, "vmbus channel msg",
-		NULL, MTX_DEF);
+	mutex_init(&hv_vmbus_g_connection.channel_msg_lock, MUTEX_DEFAULT, IPL_NONE);
 
 	TAILQ_INIT(&hv_vmbus_g_connection.channel_anchor);
-	mtx_init(&hv_vmbus_g_connection.channel_lock, "vmbus channel",
-		NULL, MTX_DEF);
+	mutex_init(&hv_vmbus_g_connection.channel_lock, MUTEX_DEFAULT, IPL_NONE);
 
 	/**
 	 * Setup the vmbus event connection for channel interrupt abstraction
@@ -214,10 +221,10 @@ hv_vmbus_connect(void)
 	/*
 	 * Find the highest vmbus version number we can support.
 	 */
-	version = HV_VMBUS_VERSION_CURRENT;
+	hv_version = HV_VMBUS_VERSION_CURRENT;
 
 	do {
-		ret = hv_vmbus_negotiate_version(msg_info, version);
+		ret = hv_vmbus_negotiate_version(msg_info, hv_version);
 		if (ret == EWOULDBLOCK) {
 			/*
 			 * We timed out.
@@ -228,15 +235,15 @@ hv_vmbus_connect(void)
 		if (hv_vmbus_g_connection.connect_state == HV_CONNECTED)
 			break;
 
-		version = hv_vmbus_get_next_version(version);
-	} while (version != HV_VMBUS_VERSION_INVALID);
+		hv_version = hv_vmbus_get_next_version(hv_version);
+	} while (hv_version != HV_VMBUS_VERSION_INVALID);
 
-	hv_vmbus_protocal_version = version;
+	hv_vmbus_protocal_version = hv_version;
 	if (bootverbose)
 		printf("VMBUS: Protocol Version: %d.%d\n",
-		    version >> 16, version & 0xFFFF);
+		    hv_version >> 16, hv_version & 0xFFFF);
 
-	sema_destroy(&msg_info->wait_sema);
+	hv_sema_destroy(&msg_info->wait_sema);
 	free(msg_info, M_DEVBUF);
 
 	return (0);
@@ -248,8 +255,8 @@ hv_vmbus_connect(void)
 
 	hv_vmbus_g_connection.connect_state = HV_DISCONNECTED;
 
-	mtx_destroy(&hv_vmbus_g_connection.channel_lock);
-	mtx_destroy(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_destroy(&hv_vmbus_g_connection.channel_lock);
+	mutex_destroy(&hv_vmbus_g_connection.channel_msg_lock);
 
 	if (hv_vmbus_g_connection.interrupt_page != NULL) {
 		free(hv_vmbus_g_connection.interrupt_page, M_DEVBUF);
@@ -260,7 +267,7 @@ hv_vmbus_connect(void)
 	free(hv_vmbus_g_connection.monitor_page_2, M_DEVBUF);
 
 	if (msg_info) {
-		sema_destroy(&msg_info->wait_sema);
+		hv_sema_destroy(&msg_info->wait_sema);
 		free(msg_info, M_DEVBUF);
 	}
 
@@ -283,7 +290,7 @@ hv_vmbus_disconnect(void)
 
 	free(hv_vmbus_g_connection.interrupt_page, M_DEVBUF);
 
-	mtx_destroy(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_destroy(&hv_vmbus_g_connection.channel_msg_lock);
 
 	free(hv_vmbus_g_connection.channels, M_DEVBUF);
 	hv_vmbus_g_connection.connect_state = HV_DISCONNECTED;
@@ -304,10 +311,10 @@ vmbus_event_flags_proc(unsigned long *event_flags, int flag_cnt)
 		if (event_flags[f] == 0)
 			continue;
 
-		flags = atomic_swap_long(&event_flags[f], 0);
+		flags = atomic_swap_ulong(&event_flags[f], 0);
 		rel_id_base = f << HV_CHANNEL_ULONG_SHIFT;
 
-		while ((bit = ffsl(flags)) != 0) {
+		while ((bit = ffs64(flags)) != 0) {
 			struct hv_vmbus_channel *channel;
 			uint32_t rel_id;
 
@@ -323,7 +330,7 @@ vmbus_event_flags_proc(unsigned long *event_flags, int flag_cnt)
 
 			if (channel->batched_reading)
 				hv_ring_buffer_read_begin(&channel->inbound);
-			taskqueue_enqueue(channel->rxq, &channel->channel_task);
+			workqueue_enqueue(channel->rxq, channel->channel_task, NULL);
 		}
 	}
 }
@@ -361,7 +368,7 @@ vmbus_event_proc_compat(struct vmbus_softc *sc __unused, int cpu)
 int hv_vmbus_post_message(void *buffer, size_t bufferLen)
 {
 	hv_vmbus_connection_id connId;
-	sbintime_t time = SBT_1MS;
+	int time = 1;
 	int retries;
 	int ret;
 
@@ -378,13 +385,12 @@ int hv_vmbus_post_message(void *buffer, size_t bufferLen)
 		if (ret == HV_STATUS_SUCCESS)
 			return (0);
 
-		pause_sbt("pstmsg", time, 0, C_HARDCLOCK);
-		if (time < SBT_1S * 2)
+		kpause("pstmsg", false, mstohz(time), NULL);
+		if (time < 1000 * 2)
 			time *= 2;
 	}
 
-	KASSERT(ret == HV_STATUS_SUCCESS,
-		("Error VMBUS: Message Post Failed, ret=%d\n", ret));
+	KASSERT(ret == HV_STATUS_SUCCESS);
 
 	return (EAGAIN);
 }

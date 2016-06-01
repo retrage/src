@@ -763,7 +763,7 @@ typedef struct hv_vmbus_channel {
 
 	struct workqueue *		rxq;
 	/* TODO: */
-	struct work *			channel_work;
+	struct work *			channel_task;
 	hv_vmbus_pfn_channel_callback	on_channel_callback;
 	void*				channel_callback_context;
 
@@ -931,4 +931,7 @@ hv_get_phys_addr(void *virt)
 }
 
 extern uint32_t hv_vmbus_protocal_version;
+
+
+
 #endif  /* __HYPERV_H__ */
