@@ -138,10 +138,25 @@ atomic_cmpset_int(volatile u_int *dst, u_int expect, u_int src)
 	"# atomic_cmpset_int"
 	: "=q" (res),			/* 0 */
 	  "+m" (*dst),			/* 1 */
-  	  "+a" (expect)			/* 2 */
-  	: "r" (src)			/* 3 */
+	  "+a" (expect)			/* 2 */
+	: "r" (src)			/* 3 */
 	: "memory", "cc");
 	return (res);
+}
+
+/* From sys/amd64/include/atomic.h in FreeBSD */
+static __inline u_int
+atomic_fetchadd_int(volatile u_int *p, u_int v)
+{
+
+	__asm __volatile(
+	"	" MPLOCKED "		"
+	"	xaddl	%0,%1 ;		"
+	"# atomic_fetchadd_int"
+	: "+r" (v),			/* 0 */
+	  "+m" (*p)			/* 1 */
+	: : "cc");
+	return (v);
 }
 
 #endif	/* !_VMBUS_VAR_H_ */

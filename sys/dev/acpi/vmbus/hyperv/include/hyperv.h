@@ -762,6 +762,10 @@ typedef struct hv_vmbus_channel {
 	hv_vmbus_ring_buffer_info	inbound;
 
 	struct workqueue *		rxq;
+	kcondvar_t			rxq_cv;
+	kmutex_t			rxq_lock;
+	int				rxq_nworker;
+	bool				rxq_running;
 	/* TODO: */
 	struct work *			channel_task;
 	hv_vmbus_pfn_channel_callback	on_channel_callback;

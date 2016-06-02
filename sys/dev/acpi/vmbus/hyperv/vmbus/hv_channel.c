@@ -27,7 +27,9 @@
  */
 
 #include <sys/cdefs.h>
+/*
 __FBSDID("$FreeBSD: head/sys/dev/hyperv/vmbus/hv_channel.c 300646 2016-05-25 04:59:20Z sephe $");
+*/
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -37,13 +39,18 @@ __FBSDID("$FreeBSD: head/sys/dev/hyperv/vmbus/hv_channel.c 300646 2016-05-25 04:
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/sysctl.h>
+#include <sys/reboot.h>
+#include <uvm/uvm.h>
+/*
 #include <machine/bus.h>
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
+*/
 
-#include <dev/hyperv/vmbus/hv_vmbus_priv.h>
-#include <dev/hyperv/vmbus/vmbus_var.h>
+#include <dev/acpi/vmbus/hyperv/vmbus/hv_vmbus_priv.h>
+#include <dev/acpi/vmbus/hyperv/vmbus/hv_sema.h>
+#include <dev/acpi/vmbus/hyperv/vmbus/vmbus_var.h>
 
 static int 	vmbus_channel_create_gpadl_header(
 			/* must be phys and virt contiguous*/
@@ -82,6 +89,7 @@ vmbus_channel_set_event(hv_vmbus_channel *channel)
 
 }
 
+/*
 static int
 vmbus_channel_sysctl_monalloc(SYSCTL_HANDLER_ARGS)
 {
@@ -92,7 +100,8 @@ vmbus_channel_sysctl_monalloc(SYSCTL_HANDLER_ARGS)
 		alloc = 1;
 	return sysctl_handle_int(oidp, &alloc, 0, req);
 }
-
+*/
+/*
 static void
 vmbus_channel_sysctl_create(hv_vmbus_channel* channel)
 {
@@ -116,11 +125,15 @@ vmbus_channel_sysctl_create(hv_vmbus_channel* channel)
 		sub_ch_id = channel->offer_msg.offer.sub_channel_index;
 	}
 	ctx = device_get_sysctl_ctx(dev);
+*/
 	/* This creates dev.DEVNAME.DEVUNIT.channel tree */
+/*
 	devch_sysctl = SYSCTL_ADD_NODE(ctx,
 		    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)),
 		    OID_AUTO, "channel", CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "");
+*/
 	/* This creates dev.DEVNAME.DEVUNIT.channel.CHANID tree */
+/*
 	snprintf(name, sizeof(name), "%d", ch_id);
 	devch_id_sysctl = SYSCTL_ADD_NODE(ctx,
 	    	    SYSCTL_CHILDREN(devch_sysctl),
@@ -165,6 +178,7 @@ vmbus_channel_sysctl_create(hv_vmbus_channel* channel)
 		&(channel->outbound),
 		"outbound ring buffer stats");
 }
+*/
 
 /**
  * @brief Open the specified channel
@@ -185,17 +199,17 @@ hv_vmbus_channel_open(
 	hv_vmbus_channel_open_channel*	open_msg;
 	hv_vmbus_channel_msg_info* 	open_info;
 
-	mtx_lock(&new_channel->sc_lock);
+	mutex_enter(&new_channel->sc_lock);
 	if (new_channel->state == HV_CHANNEL_OPEN_STATE) {
 	    new_channel->state = HV_CHANNEL_OPENING_STATE;
 	} else {
-	    mtx_unlock(&new_channel->sc_lock);
+	    mutex_exit(&new_channel->sc_lock);
 	    if(bootverbose)
 		printf("VMBUS: Trying to open channel <%p> which in "
 		    "%d state.\n", new_channel, new_channel->state);
 	    return (EINVAL);
 	}
-	mtx_unlock(&new_channel->sc_lock);
+	mutex_exit(&new_channel->sc_lock);
 
 	new_channel->on_channel_callback = pfn_on_channel_callback;
 	new_channel->channel_callback_context = context;
@@ -204,13 +218,15 @@ hv_vmbus_channel_open(
 
 	new_channel->rxq = VMBUS_PCPU_GET(vmbus_get_softc(), event_tq,
 	    new_channel->target_cpu);
+	/*
 	TASK_INIT(&new_channel->channel_task, 0, VmbusProcessChannelEvent, new_channel);
+	*/
+
 
 	/* Allocate the ring buffer */
-	out = contigmalloc((send_ring_buffer_size + recv_ring_buffer_size),
-	    M_DEVBUF, M_ZERO, 0UL, BUS_SPACE_MAXADDR, PAGE_SIZE, 0);
-	KASSERT(out != NULL,
-	    ("Error VMBUS: contigmalloc failed to allocate Ring Buffer!"));
+	out = (void *)uvm_km_alloc(kernel_map, (send_ring_buffer_size + recv_ring_buffer_size),
+	    PAGE_SIZE, UVM_KMF_WIRED | UVM_KMF_ZERO);
+	KASSERT(out != NULL);
 	if (out == NULL)
 		return (ENOMEM);
 
@@ -233,7 +249,9 @@ hv_vmbus_channel_open(
 		recv_ring_buffer_size);
 
 	/* Create sysctl tree for this channel */
+	/*
 	vmbus_channel_sysctl_create(new_channel);
+	*/
 
 	/**
 	 * Establish the gpadl for the ring buffer
@@ -253,13 +271,12 @@ hv_vmbus_channel_open(
 			sizeof(hv_vmbus_channel_open_channel),
 		M_DEVBUF,
 		M_NOWAIT);
-	KASSERT(open_info != NULL,
-	    ("Error VMBUS: malloc failed to allocate Open Channel message!"));
+	KASSERT(open_info != NULL);
 
 	if (open_info == NULL)
 		return (ENOMEM);
 
-	sema_init(&open_info->wait_sema, 0, "Open Info Sema");
+	hv_sema_init(&open_info->wait_sema, 0, "Open Info Sema");
 
 	open_msg = (hv_vmbus_channel_open_channel*) open_info->msg;
 	open_msg->header.message_type = HV_CHANNEL_MESSAGE_OPEN_CHANNEL;
@@ -274,12 +291,12 @@ hv_vmbus_channel_open(
 	if (user_data_len)
 		memcpy(open_msg->user_data, user_data, user_data_len);
 
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_INSERT_TAIL(
 		&hv_vmbus_g_connection.channel_msg_anchor,
 		open_info,
 		msg_list_entry);
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 
 	ret = hv_vmbus_post_message(
 		open_msg, sizeof(hv_vmbus_channel_open_channel));
@@ -287,7 +304,7 @@ hv_vmbus_channel_open(
 	if (ret != 0)
 	    goto cleanup;
 
-	ret = sema_timedwait(&open_info->wait_sema, 5 * hz); /* KYS 5 seconds */
+	ret = hv_sema_timedwait(&open_info->wait_sema, 5 * hz); /* KYS 5 seconds */
 
 	if (ret) {
 	    if(bootverbose)
@@ -306,13 +323,13 @@ hv_vmbus_channel_open(
 	}
 
 	cleanup:
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_REMOVE(
 		&hv_vmbus_g_connection.channel_msg_anchor,
 		open_info,
 		msg_list_entry);
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
-	sema_destroy(&open_info->wait_sema);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
+	hv_sema_destroy(&open_info->wait_sema);
 	free(open_info, M_DEVBUF);
 
 	return (ret);
@@ -356,8 +373,7 @@ vmbus_channel_create_gpadl_header(
 		+ pfnCount * sizeof(uint64_t);
 	    msg_header = malloc(msg_size, M_DEVBUF, M_NOWAIT | M_ZERO);
 	    KASSERT(
-		msg_header != NULL,
-		("Error VMBUS: malloc failed to allocate Gpadl Message!"));
+		msg_header != NULL);
 	    if (msg_header == NULL)
 		return (ENOMEM);
 
@@ -401,8 +417,7 @@ vmbus_channel_create_gpadl_header(
 		    pfnCurr * sizeof(uint64_t);
 		msg_body = malloc(msg_size, M_DEVBUF, M_NOWAIT | M_ZERO);
 		KASSERT(
-		    msg_body != NULL,
-		    ("Error VMBUS: malloc failed to allocate Gpadl msg_body!"));
+		    msg_body != NULL);
 		if (msg_body == NULL)
 		    return (ENOMEM);
 
@@ -432,8 +447,7 @@ vmbus_channel_create_gpadl_header(
 		page_count * sizeof(uint64_t);
 	    msg_header = malloc(msg_size, M_DEVBUF, M_NOWAIT | M_ZERO);
 	    KASSERT(
-		msg_header != NULL,
-		("Error VMBUS: malloc failed to allocate Gpadl Message!"));
+		msg_header != NULL);
 	    if (msg_header == NULL)
 		return (ENOMEM);
 
@@ -494,19 +508,19 @@ hv_vmbus_channel_establish_gpadl(
 		return ret;
 	}
 
-	sema_init(&msg_info->wait_sema, 0, "Open Info Sema");
+	hv_sema_init(&msg_info->wait_sema, 0, "Open Info Sema");
 	gpadl_msg = (hv_vmbus_channel_gpadl_header*) msg_info->msg;
 	gpadl_msg->header.message_type = HV_CHANNEL_MESSAGEL_GPADL_HEADER;
 	gpadl_msg->child_rel_id = channel->offer_msg.child_rel_id;
 	gpadl_msg->gpadl = next_gpadl_handle;
 
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_INSERT_TAIL(
 		&hv_vmbus_g_connection.channel_msg_anchor,
 		msg_info,
 		msg_list_entry);
 
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 
 	ret = hv_vmbus_post_message(
 		gpadl_msg,
@@ -537,7 +551,7 @@ hv_vmbus_channel_establish_gpadl(
 	    }
 	}
 
-	ret = sema_timedwait(&msg_info->wait_sema, 5 * hz); /* KYS 5 seconds*/
+	ret = hv_sema_timedwait(&msg_info->wait_sema, 5 * hz); /* KYS 5 seconds*/
 	if (ret != 0)
 	    goto cleanup;
 
@@ -545,12 +559,12 @@ hv_vmbus_channel_establish_gpadl(
 
 cleanup:
 
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_REMOVE(&hv_vmbus_g_connection.channel_msg_anchor,
 		msg_info, msg_list_entry);
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 
-	sema_destroy(&msg_info->wait_sema);
+	hv_sema_destroy(&msg_info->wait_sema);
 	free(msg_info, M_DEVBUF);
 
 	return (ret);
@@ -572,14 +586,13 @@ hv_vmbus_channel_teardown_gpdal(
 		malloc(	sizeof(hv_vmbus_channel_msg_info) +
 			sizeof(hv_vmbus_channel_gpadl_teardown),
 				M_DEVBUF, M_NOWAIT);
-	KASSERT(info != NULL,
-	    ("Error VMBUS: malloc failed to allocate Gpadl Teardown Msg!"));
+	KASSERT(info != NULL);
 	if (info == NULL) {
 	    ret = ENOMEM;
 	    goto cleanup;
 	}
 
-	sema_init(&info->wait_sema, 0, "Open Info Sema");
+	hv_sema_init(&info->wait_sema, 0, "Open Info Sema");
 
 	msg = (hv_vmbus_channel_gpadl_teardown*) info->msg;
 
@@ -587,27 +600,27 @@ hv_vmbus_channel_teardown_gpdal(
 	msg->child_rel_id = channel->offer_msg.child_rel_id;
 	msg->gpadl = gpadl_handle;
 
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_INSERT_TAIL(&hv_vmbus_g_connection.channel_msg_anchor,
 			info, msg_list_entry);
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
 
 	ret = hv_vmbus_post_message(msg,
 			sizeof(hv_vmbus_channel_gpadl_teardown));
 	if (ret != 0) 
 	    goto cleanup;
 	
-	ret = sema_timedwait(&info->wait_sema, 5 * hz); /* KYS 5 seconds */
+	ret = hv_sema_timedwait(&info->wait_sema, 5 * hz); /* KYS 5 seconds */
 
 cleanup:
 	/*
 	 * Received a torndown response
 	 */
-	mtx_lock(&hv_vmbus_g_connection.channel_msg_lock);
+	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_REMOVE(&hv_vmbus_g_connection.channel_msg_anchor,
 			info, msg_list_entry);
-	mtx_unlock(&hv_vmbus_g_connection.channel_msg_lock);
-	sema_destroy(&info->wait_sema);
+	mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
+	hv_sema_destroy(&info->wait_sema);
 	free(info, M_DEVBUF);
 
 	return (ret);
@@ -616,8 +629,9 @@ cleanup:
 static void
 hv_vmbus_channel_close_internal(hv_vmbus_channel *channel)
 {
-	int ret = 0;
-	struct taskqueue *rxq = channel->rxq;
+	/*
+	struct workqueue *rxq = channel->rxq;
+	*/
 	hv_vmbus_channel_close_channel* msg;
 	hv_vmbus_channel_msg_info* info;
 
@@ -627,7 +641,13 @@ hv_vmbus_channel_close_internal(hv_vmbus_channel *channel)
 	 * set rxq to NULL to avoid more requests be scheduled
 	 */
 	channel->rxq = NULL;
-	taskqueue_drain(rxq, &channel->channel_task);
+	mutex_enter(&channel->rxq_lock);
+	channel->rxq_running = false;
+	while (channel->rxq_nworker > 0) {
+		cv_wait(&channel->rxq_cv, &channel->rxq_lock);
+	}
+	mutex_exit(&channel->rxq_lock);
+
 	channel->on_channel_callback = NULL;
 
 	/**
@@ -637,7 +657,7 @@ hv_vmbus_channel_close_internal(hv_vmbus_channel *channel)
 		malloc(	sizeof(hv_vmbus_channel_msg_info) +
 			sizeof(hv_vmbus_channel_close_channel),
 				M_DEVBUF, M_NOWAIT);
-	KASSERT(info != NULL, ("VMBUS: malloc failed hv_vmbus_channel_close!"));
+	KASSERT(info != NULL);
 	if(info == NULL)
 	    return;
 
@@ -645,7 +665,7 @@ hv_vmbus_channel_close_internal(hv_vmbus_channel *channel)
 	msg->header.message_type = HV_CHANNEL_MESSAGE_CLOSE_CHANNEL;
 	msg->child_rel_id = channel->offer_msg.child_rel_id;
 
-	ret = hv_vmbus_post_message(
+	hv_vmbus_post_message(
 		msg, sizeof(hv_vmbus_channel_close_channel));
 
 	/* Tear down the gpadl for the channel's ring buffer */
@@ -660,8 +680,8 @@ hv_vmbus_channel_close_internal(hv_vmbus_channel *channel)
 	hv_ring_buffer_cleanup(&channel->outbound);
 	hv_ring_buffer_cleanup(&channel->inbound);
 
-	contigfree(channel->ring_buffer_pages, channel->ring_buffer_size,
-	    M_DEVBUF);
+	uvm_km_free(kernel_map, (vaddr_t)channel->ring_buffer_pages,
+	    channel->ring_buffer_size, UVM_KMF_WIRED | UVM_KMF_ZERO);
 
 	free(info, M_DEVBUF);
 }
@@ -780,7 +800,7 @@ hv_vmbus_channel_send_packet_pagebuffer(
 	 * Adjust the size down since hv_vmbus_channel_packet_page_buffer
 	 *  is the largest size we support
 	 */
-	descSize = __offsetof(hv_vmbus_channel_packet_page_buffer, range);
+	descSize = offsetof(hv_vmbus_channel_packet_page_buffer, range);
 	page_buflen = sizeof(hv_vmbus_page_buffer) * page_count;
 	packet_len = descSize + page_buflen + buffer_len;
 	packetLen_aligned = HV_ALIGN_UP(packet_len, sizeof(uint64_t));
