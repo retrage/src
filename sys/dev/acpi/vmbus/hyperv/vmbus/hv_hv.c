@@ -304,8 +304,12 @@ SYSINIT(hyperv_initialize, SI_SUB_HYPERVISOR, SI_ORDER_FIRST, hyperv_init,
 static void
 hypercall_memfree(void)
 {
+	/*
 	hyperv_dmamem_free(&hypercall_context.hc_dma,
 	    hypercall_context.hc_addr);
+	*/
+	uvm_km_free(kernel_map, (vaddr_t)hypercall_context.hc_addr, PAGE_SIZE,
+	    UVM_KMF_ZERO | UVM_KMF_WIRED);
 	hypercall_context.hc_addr = NULL;
 }
 
@@ -317,8 +321,12 @@ hypercall_create(void)
 	if (vm_guest != VM_GUEST_HV)
 		return;
 
+	/*
 	hypercall_context.hc_addr = hyperv_dmamem_alloc(NULL, PAGE_SIZE, 0,
 	    PAGE_SIZE, &hypercall_context.hc_dma, BUS_DMA_WAITOK);
+	*/
+	/* Allocate page */
+	hypercall_context.hc_addr = (void *)uvm_km_alloc(kernel_map, PAGE_SIZE, 0, UVM_KMF_ZERO | UVM_KMF_WIRED);
 	if (hypercall_context.hc_addr == NULL) {
 		printf("hyperv: Hypercall page allocation failed\n");
 		/* Can't perform any Hyper-V specific actions */
