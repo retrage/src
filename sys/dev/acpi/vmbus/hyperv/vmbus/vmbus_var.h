@@ -35,7 +35,7 @@
 #include <dev/acpi/vmbus/hyperv/include/hyperv_busdma.h>
 
 struct vmbus_pcpu_data {
-	u_long			*intr_cnt;	/* Hyper-V interrupt counter */
+	struct evcnt		intr_cnt;		/* Hyper-V interrupt counter */
 	struct vmbus_message	*message;	/* shared messages */
 	uint32_t		vcpuid;		/* virtual cpuid */
 	int			event_flag_cnt;	/* # of event flags */
