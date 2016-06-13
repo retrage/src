@@ -28,14 +28,13 @@
 
 #include <sys/param.h>
 #include <sys/kernel.h>
-#include <sys/malloc.h>
+#include <sys/kmem.h>
 #include <sys/systm.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/atomic.h>
 #include <sys/workqueue.h>
 #include <sys/bitops.h>
-/* For bootverbose */
 #include <sys/reboot.h>
 /*
 #include <machine/bus.h>
@@ -186,9 +185,7 @@ hv_vmbus_connect(void)
 	 * Setup the vmbus event connection for channel interrupt abstraction
 	 * stuff
 	 */
-	hv_vmbus_g_connection.interrupt_page = malloc(
-					PAGE_SIZE, M_DEVBUF,
-					M_WAITOK | M_ZERO);
+	hv_vmbus_g_connection.interrupt_page = kmem_intr_zalloc(PAGE_SIZE, KM_SLEEP);
 
 	hv_vmbus_g_connection.recv_interrupt_page =
 		hv_vmbus_g_connection.interrupt_page;
@@ -201,23 +198,16 @@ hv_vmbus_connect(void)
 	 * Set up the monitor notification facility. The 1st page for
 	 * parent->child and the 2nd page for child->parent
 	 */
-	hv_vmbus_g_connection.monitor_page_1 = malloc(
-		PAGE_SIZE,
-		M_DEVBUF,
-		M_WAITOK | M_ZERO);
-	hv_vmbus_g_connection.monitor_page_2 = malloc(
-		PAGE_SIZE,
-		M_DEVBUF,
-		M_WAITOK | M_ZERO);
+	hv_vmbus_g_connection.monitor_page_1 = kmem_zalloc(PAGE_SIZE, KM_SLEEP);
+	hv_vmbus_g_connection.monitor_page_2 = kmem_zalloc(PAGE_SIZE, KM_SLEEP);
 
 	msg_info = (hv_vmbus_channel_msg_info*)
-		malloc(sizeof(hv_vmbus_channel_msg_info) +
-			sizeof(hv_vmbus_channel_initiate_contact),
-			M_DEVBUF, M_WAITOK | M_ZERO);
+		kmem_zalloc(sizeof(hv_vmbus_channel_msg_info) +
+			sizeof(hv_vmbus_channel_initiate_contact), KM_SLEEP);
 
-	hv_vmbus_g_connection.channels = malloc(sizeof(hv_vmbus_channel*) *
-		HV_CHANNEL_MAX_COUNT,
-		M_DEVBUF, M_WAITOK | M_ZERO);
+	hv_vmbus_g_connection.channels = kmem_zalloc(sizeof(hv_vmbus_channel*) *
+		HV_CHANNEL_MAX_COUNT, KM_SLEEP);
+
 	/*
 	 * Find the highest vmbus version number we can support.
 	 */
@@ -244,7 +234,8 @@ hv_vmbus_connect(void)
 		    hv_version >> 16, hv_version & 0xFFFF);
 
 	hv_sema_destroy(&msg_info->wait_sema);
-	free(msg_info, M_DEVBUF);
+	kmem_free(msg_info, sizeof(hv_vmbus_channel_msg_info) +
+			sizeof(hv_vmbus_channel_initiate_contact));
 
 	return (0);
 
@@ -259,19 +250,21 @@ hv_vmbus_connect(void)
 	mutex_destroy(&hv_vmbus_g_connection.channel_msg_lock);
 
 	if (hv_vmbus_g_connection.interrupt_page != NULL) {
-		free(hv_vmbus_g_connection.interrupt_page, M_DEVBUF);
+		kmem_intr_free(hv_vmbus_g_connection.interrupt_page, PAGE_SIZE);
 		hv_vmbus_g_connection.interrupt_page = NULL;
 	}
 
-	free(hv_vmbus_g_connection.monitor_page_1, M_DEVBUF);
-	free(hv_vmbus_g_connection.monitor_page_2, M_DEVBUF);
+	kmem_free(hv_vmbus_g_connection.monitor_page_1, PAGE_SIZE);
+	kmem_free(hv_vmbus_g_connection.monitor_page_2, PAGE_SIZE);
 
 	if (msg_info) {
 		hv_sema_destroy(&msg_info->wait_sema);
-		free(msg_info, M_DEVBUF);
+		kmem_free(msg_info, sizeof(hv_vmbus_channel_msg_info) +
+				sizeof(hv_vmbus_channel_initiate_contact));
 	}
 
-	free(hv_vmbus_g_connection.channels, M_DEVBUF);
+	kmem_free(hv_vmbus_g_connection.channels,
+			sizeof(hv_vmbus_channel*) * HV_CHANNEL_MAX_COUNT);
 	return (ret);
 }
 
