@@ -955,6 +955,13 @@ ENTRY(hypercall_page)
 END(hypercall_page)
 #endif /* XEN */
 
+/* space for Hyper-V hypercall call page */
+#define HV_HYPERCALL_PAGE_OFFSET 0x1000
+.org HV_HYPERCALL_PAGE_OFFSET
+ENTRY(hv_hypercall_page)
+.skip 0x1000
+END(hv_hypercall_page)
+
 /*
  * int setjmp(label_t *)
  *
@@ -1464,3 +1471,4 @@ ENTRY(pagezero)
 	sfence
 	ret
 END(pagezero)
+

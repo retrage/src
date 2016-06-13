@@ -36,7 +36,7 @@ __FBSDID("$FreeBSD: head/sys/dev/hyperv/vmbus/hv_hv.c 300834 2016-05-27 07:29:31
 
 #include <sys/param.h>
 #include <sys/kernel.h>
-#include <sys/malloc.h>
+#include <sys/kmem.h>
 #include <sys/systm.h>
 #include <sys/reboot.h>
 /*
@@ -106,6 +106,7 @@ static struct timecounter	hyperv_timecounter = {
 static struct hypercall_ctx	hypercall_context;
 
 int vm_guest;
+extern void *hv_hypercall_page;
 
 static u_int
 hyperv_get_timecount(struct timecounter *tc __unused)
@@ -176,8 +177,7 @@ hv_vmbus_post_msg_via_msg_ipc(
 	if (payload_size > HV_MESSAGE_PAYLOAD_BYTE_COUNT)
 	    return (EMSGSIZE);
 
-	addr = (size_t) malloc(sizeof(struct alignedinput), M_DEVBUF,
-			    M_ZERO | M_NOWAIT);
+	addr = (size_t) kmem_zalloc(sizeof(struct alignedinput), KM_SLEEP);
 	KASSERT(addr != 0);
 	if (addr == 0)
 	    return (ENOMEM);
@@ -193,7 +193,8 @@ hv_vmbus_post_msg_via_msg_ipc(
 	status = hv_vmbus_do_hypercall(
 		    HV_CALL_POST_MESSAGE, aligned_msg, 0) & 0xFFFF;
 
-	free((void *) addr, M_DEVBUF);
+	kmem_free((void *) addr, sizeof(struct alignedinput));
+
 	return (status);
 }
 
@@ -296,20 +297,10 @@ hyperv_init(void)
 		tc_init(&hyperv_timecounter);
 	}
 }
-/*
-SYSINIT(hyperv_initialize, SI_SUB_HYPERVISOR, SI_ORDER_FIRST, hyperv_init,
-    NULL);
-*/
 
 static void
 hypercall_memfree(void)
 {
-	/*
-	hyperv_dmamem_free(&hypercall_context.hc_dma,
-	    hypercall_context.hc_addr);
-	*/
-	uvm_km_free(kernel_map, (vaddr_t)hypercall_context.hc_addr, PAGE_SIZE,
-	    UVM_KMF_ZERO | UVM_KMF_WIRED);
 	hypercall_context.hc_addr = NULL;
 }
 
@@ -317,16 +308,13 @@ void
 hypercall_create(void)
 {
 	uint64_t hc, hc_orig;
+	paddr_t pa;
 
 	if (vm_guest != VM_GUEST_HV)
 		return;
 
-	/*
-	hypercall_context.hc_addr = hyperv_dmamem_alloc(NULL, PAGE_SIZE, 0,
-	    PAGE_SIZE, &hypercall_context.hc_dma, BUS_DMA_WAITOK);
-	*/
 	/* Allocate page */
-	hypercall_context.hc_addr = (void *)uvm_km_alloc(kernel_map, PAGE_SIZE, 0, UVM_KMF_ZERO | UVM_KMF_WIRED);
+	hypercall_context.hc_addr = &hv_hypercall_page;
 	if (hypercall_context.hc_addr == NULL) {
 		printf("hyperv: Hypercall page allocation failed\n");
 		/* Can't perform any Hyper-V specific actions */
@@ -337,12 +325,19 @@ hypercall_create(void)
 	/* Get the 'reserved' bits, which requires preservation. */
 	hc_orig = rdmsr(MSR_HV_HYPERCALL);
 
+	if (!pmap_extract(pmap_kernel(), 
+		(vaddr_t)hypercall_context.hc_addr, &pa)) {
+		printf("hyperv: Hypercall page PA extraction failed\n");
+		hypercall_memfree();
+		vm_guest = VM_GUEST_VM;
+		return;
+	}
 	/*
 	 * Setup the Hypercall page.
 	 *
 	 * NOTE: 'reserved' bits MUST be preserved.
 	 */
-	hc = ((hypercall_context.hc_dma.hv_paddr >> PAGE_SHIFT) <<
+	hc = ((pa >> PAGE_SHIFT) <<
 	    MSR_HV_HYPERCALL_PGSHIFT) |
 	    (hc_orig & MSR_HV_HYPERCALL_RSVD_MASK) |
 	    MSR_HV_HYPERCALL_ENABLE;
@@ -362,9 +357,6 @@ hypercall_create(void)
 	if (bootverbose)
 		printf("hyperv: Hypercall created\n");
 }
-/*
-SYSINIT(hypercall_ctor, SI_SUB_DRIVERS, SI_ORDER_FIRST, hypercall_create, NULL);
-*/
 
 void
 hypercall_destroy(void)
@@ -382,7 +374,3 @@ hypercall_destroy(void)
 	if (bootverbose)
 		printf("hyperv: Hypercall destroyed\n");
 }
-/*
-SYSUNINIT(hypercall_dtor, SI_SUB_DRIVERS, SI_ORDER_FIRST, hypercall_destroy,
-    NULL);
-*/
