@@ -1,3 +1,6 @@
+*.bash
 obj/*
 tools/*/obj/*
 sys/arch/amd64/compile/HYPERV/*
+sys/arch/amd64/compile/HVMON/*
+sys/arch/amd64/conf/HVMON
