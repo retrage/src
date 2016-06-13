@@ -57,7 +57,7 @@ hyperv_dmamem_alloc(bus_dma_tag_t parent_dtag, bus_size_t alignment,
 	ret = NULL;
 	rsegs = 0;
 
-	printf("hyperv_dmamem_alloc: size=%lx align=%lx bound=%lx\n", size, alignment, boundary);
+	dma->hv_dtag = parent_dtag;
 
 	error = bus_dmamem_alloc(dma->hv_dtag, /* tag */
 	    size,			/* size */
