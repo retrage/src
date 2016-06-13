@@ -28,6 +28,7 @@ void hv_vector_handler(struct intrframe *);
 
 static int  vmbus_match(device_t, cfdata_t, void *);
 static void vmbus_attach(device_t, device_t, void *);
+static int  vmbus_detach(device_t, int);
 
 struct vmbus_softc	*vmbus_sc;
 
@@ -38,8 +39,8 @@ static const char *vmbus_ids[] = {
 
 extern void hv_vmbus_callback(void);
 
-CFATTACH_DECL_NEW(vmbus, sizeof(struct vmbus_softc),
-	vmbus_match, vmbus_attach, NULL, NULL);
+CFATTACH_DECL3_NEW(vmbus, sizeof(struct vmbus_softc),
+	vmbus_match, vmbus_attach, vmbus_detach, NULL, NULL, NULL, 0);
 
 /**
  * @brief Interrupt filter routine for VMBUS.
@@ -57,9 +58,7 @@ hv_vmbus_isr(struct vmbus_softc *sc, struct intrframe *frame, int cpu)
 	 * before checking for messages. This is the way they do it
 	 * in Windows when running as a guest in Hyper-V
 	 */
-	/*
 	sc->vmbus_event_proc(sc, cpu);
-	*/
 
 	/* Check if there are actual msgs to be process */
 	msg_base = VMBUS_PCPU_GET(sc, message, cpu);
@@ -200,6 +199,45 @@ vmbus_synic_setup(void *xsc)
 	wrmsr(MSR_HV_SCONTROL, val);
 }
 
+static void
+vmbus_synic_teardown(void *arg)
+{
+	uint64_t orig;
+	uint32_t sint;
+
+	/*
+	 * Disable SynIC.
+	 */
+	orig = rdmsr(MSR_HV_SCONTROL);
+	wrmsr(MSR_HV_SCONTROL, (orig & MSR_HV_SCTRL_RSVD_MASK));
+
+	/*
+	 * Mask message and event flags SINT.
+	 */
+	sint = MSR_HV_SINT0 + HV_VMBUS_MESSAGE_SINT;
+	orig = rdmsr(sint);
+	wrmsr(sint, orig | MSR_HV_SINT_MASKED);
+
+	/*
+	 * Mask timer SINT.
+	 */
+	sint = MSR_HV_SINT0 + HV_VMBUS_TIMER_SINT;
+	orig = rdmsr(sint);
+	wrmsr(sint, orig | MSR_HV_SINT_MASKED);
+
+	/*
+	 * Teardown SynIC message.
+	 */
+	orig = rdmsr(MSR_HV_SIMP);
+	wrmsr(MSR_HV_SIMP, (orig & MSR_HV_SIMP_RSVD_MASK));
+
+	/*
+	 * Teardown SynIC event flags.
+	 */
+	orig = rdmsr(MSR_HV_SIEFP);
+	wrmsr(MSR_HV_SIEFP, (orig & MSR_HV_SIEFP_RSVD_MASK));
+}
+
 static int
 vmbus_dma_alloc(struct vmbus_softc *sc)
 {
@@ -315,6 +353,33 @@ vmbus_intr_setup(struct vmbus_softc *sc)
 	return 0;
 }
 
+static void
+vmbus_intr_teardown(struct vmbus_softc *sc)
+{
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+
+	if (sc->vmbus_idtvec >= 0) {
+		idt_vec_free(sc->vmbus_idtvec);
+		sc->vmbus_idtvec = -1;
+	}
+
+	for (CPU_INFO_FOREACH(cii, ci)) {
+		/*
+		if (VMBUS_PCPU_GET(sc, event_tq, cpu) != NULL) {
+			taskqueue_free(VMBUS_PCPU_GET(sc, event_tq, cpu));
+			VMBUS_PCPU_GET(sc, event_tq, cpu) = NULL;
+		}
+		if (VMBUS_PCPU_GET(sc, message_tq, cpu) != NULL) {
+			taskqueue_drain(VMBUS_PCPU_GET(sc, message_tq, cpu),
+			    VMBUS_PCPU_PTR(sc, message_task, cpu));
+			taskqueue_free(VMBUS_PCPU_GET(sc, message_tq, cpu));
+			VMBUS_PCPU_GET(sc, message_tq, cpu) = NULL;
+		}
+		*/
+	}
+}
+
 int
 snprintf_hv_guid(char *buf, size_t sz, const hv_guid *guid)
 {
@@ -357,8 +422,8 @@ vmbus_match(device_t parent, cfdata_t match, void *aux)
 static int
 vmbus_bus_init(void)
 {
-	ipi_msg_t ipimsg = { .func = (ipi_func_t)vmbus_synic_setup, .arg = sc };
 	struct vmbus_softc *sc = vmbus_get_softc();
+	ipi_msg_t ipimsg = { .func = (ipi_func_t)vmbus_synic_setup, .arg = sc };
 	int ret;
 
 	if (sc->vmbus_flags & VMBUS_FLAG_ATTACHED)
@@ -416,9 +481,7 @@ vmbus_bus_init(void)
 	return (ret);
 
 cleanup:
-	/*
 	vmbus_intr_teardown(sc);
-	*/
 	vmbus_dma_free(sc);
 
 	return (ret);
@@ -431,7 +494,7 @@ vmbus_event_proc_dummy(struct vmbus_softc *sc __unused, int cpu __unused)
 static void
 vmbus_attach(device_t parent, device_t self, void *aux)
 {
-	/* FreeBSD's implementation uses SYSINIT to init hyperv and  */
+	/* FreeBSD's implementation uses SYSINIT, but NetBSD does not have it. */
 
 	vm_guest = VM_GUEST_HV;
 
@@ -453,4 +516,30 @@ vmbus_attach(device_t parent, device_t self, void *aux)
 	vmbus_bus_init();
 
 	/* bus_generic_probe */
+}
+
+static int
+vmbus_detach(device_t self, int flags)
+{
+	struct vmbus_softc *sc = device_private(self);
+	ipi_msg_t ipimsg = { .func = (ipi_func_t)vmbus_synic_teardown };
+
+	/*
+	hv_vmbus_release_unattached_channels();
+	*/
+	hv_vmbus_disconnect();
+
+	if (sc->vmbus_flags & VMBUS_FLAG_SYNIC) {
+		sc->vmbus_flags &= ~VMBUS_FLAG_SYNIC;
+
+		kpreempt_disable();
+		ipi_broadcast(&ipimsg);
+		ipi_wait(&ipimsg);
+		kpreempt_enable();
+	}
+
+	vmbus_intr_teardown(sc);
+	vmbus_dma_free(sc);
+
+	return (0);
 }
