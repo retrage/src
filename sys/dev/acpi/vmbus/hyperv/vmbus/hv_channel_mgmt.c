@@ -31,6 +31,11 @@
 #include <sys/lock.h>
 #include <sys/mbuf.h>
 #include <sys/mutex.h>
+#include <sys/workqueue.h>
+#include <sys/reboot.h>
+#include <sys/proc.h>
+
+#include <dev/acpi/vmbus/hyperv/vmbus/hv_sema.h>
 
 #include <dev/acpi/vmbus/hyperv/vmbus/hv_vmbus_priv.h>
 #include <dev/acpi/vmbus/hyperv/vmbus/vmbus_var.h>
@@ -96,9 +101,9 @@ typedef struct hv_work_item {
 	void*		context;
 } hv_work_item;
 
+/*
 static kmutex_t		vmbus_chwait_lock;
-MTX_SYSINIT(vmbus_chwait_lk, &vmbus_chwait_lock, "vmbus primarych wait lock",
-    MTX_DEF);
+*/
 static uint32_t		vmbus_chancnt;
 static uint32_t		vmbus_devcnt;
 
@@ -107,6 +112,7 @@ static uint32_t		vmbus_devcnt;
 /**
  * Implementation of the work abstraction.
  */
+/*
 static void
 work_item_callback(void *work, int pending)
 {
@@ -116,6 +122,7 @@ work_item_callback(void *work, int pending)
 
 	free(w, M_DEVBUF);
 }
+*/
 
 /**
  * @brief Create work item
@@ -133,9 +140,13 @@ hv_queue_work_item(
 	w->callback = callback;
 	w->context = context;
 
+	/*
 	TASK_INIT(&w->work, 0, work_item_callback, w);
+	*/
 
-	return (workqueue_enqueue(taskqueue_thread, &w->work));
+	workqueue_enqueue(hv_workqueue, &w->work, curcpu());
+
+	return 0;
 }
 
 
@@ -152,7 +163,7 @@ hv_vmbus_allocate_channel(void)
 					M_DEVBUF,
 					M_WAITOK | M_ZERO);
 
-	mutex_init(&channel->sc_lock, "vmbus multi channel", NULL, IPL_NONE);
+	mutex_init(&channel->sc_lock, MUTEX_DEFAULT, IPL_NONE);
 	TAILQ_INIT(&channel->sc_list_anchor);
 
 	return (channel);
@@ -299,6 +310,14 @@ vmbus_channel_process_offer(hv_vmbus_channel *new_channel)
 void
 vmbus_channel_cpu_set(struct hv_vmbus_channel *chan, int cpu)
 {
+	int mp_ncpus = 0;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+
+	for (CPU_INFO_FOREACH(cii, ci)) {
+		mp_ncpus++;
+	}
+
 	KASSERT(cpu >= 0 && cpu < mp_ncpus);
 
 	chan->target_cpu = cpu;
@@ -350,6 +369,14 @@ vmbus_channel_select_defcpu(struct hv_vmbus_channel *channel)
 	boolean_t is_perf_channel = FALSE;
 	const hv_guid *guid = &channel->offer_msg.offer.interface_type;
 
+	int mp_ncpus = 0;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+
+	for (CPU_INFO_FOREACH(cii, ci)) {
+		mp_ncpus++;
+	}
+
 	for (i = PERF_CHN_NIC; i < MAX_PERF_CHN; i++) {
 		if (memcmp(guid->data, high_perf_devices[i].data,
 		    sizeof(hv_guid)) == 0) {
@@ -381,10 +408,14 @@ vmbus_channel_select_defcpu(struct hv_vmbus_channel *channel)
 static void
 vmbus_channel_on_offer(hv_vmbus_channel_msg_header* hdr)
 {
+	/*
 	hv_vmbus_channel_offer_channel* offer;
+	*/
 	hv_vmbus_channel_offer_channel* copied;
 
+	/*
 	offer = (hv_vmbus_channel_offer_channel*) hdr;
+	*/
 
 	// copy offer data
 	copied = malloc(sizeof(*copied), M_DEVBUF, M_NOWAIT);
@@ -531,7 +562,7 @@ vmbus_channel_on_open_result(hv_vmbus_channel_msg_header* hdr)
 		    && openMsg->open_id == result->open_id) {
 		    memcpy(&msg_info->response.open_result, result,
 			sizeof(hv_vmbus_channel_open_result));
-		    sema_post(&msg_info->wait_sema);
+		    hv_sema_post(&msg_info->wait_sema);
 		    break;
 		}
 	    }
@@ -574,7 +605,7 @@ vmbus_channel_on_gpadl_created(hv_vmbus_channel_msg_header* hdr)
 		    memcpy(&msg_info->response.gpadl_created,
 			gpadl_created,
 			sizeof(hv_vmbus_channel_gpadl_created));
-		    sema_post(&msg_info->wait_sema);
+		    hv_sema_post(&msg_info->wait_sema);
 		    break;
 		}
 	    }
@@ -619,7 +650,7 @@ vmbus_channel_on_gpadl_torndown(hv_vmbus_channel_msg_header* hdr)
 		    memcpy(&msg_info->response.gpadl_torndown,
 			gpadl_torndown,
 			sizeof(hv_vmbus_channel_gpadl_torndown));
-		    sema_post(&msg_info->wait_sema);
+		    hv_sema_post(&msg_info->wait_sema);
 		    break;
 		}
 	    }
@@ -639,7 +670,9 @@ vmbus_channel_on_version_response(hv_vmbus_channel_msg_header* hdr)
 {
 	hv_vmbus_channel_msg_info*		msg_info;
 	hv_vmbus_channel_msg_header*		requestHeader;
+	/*
 	hv_vmbus_channel_initiate_contact*	initiate;
+	*/
 	hv_vmbus_channel_version_response*	versionResponse;
 
 	versionResponse = (hv_vmbus_channel_version_response*)hdr;
@@ -650,12 +683,14 @@ vmbus_channel_on_version_response(hv_vmbus_channel_msg_header* hdr)
 	    requestHeader = (hv_vmbus_channel_msg_header*) msg_info->msg;
 	    if (requestHeader->message_type
 		== HV_CHANNEL_MESSAGE_INITIATED_CONTACT) {
+		/*
 		initiate =
 		    (hv_vmbus_channel_initiate_contact*) requestHeader;
+		*/
 		memcpy(&msg_info->response.version_response,
 		    versionResponse,
 		    sizeof(hv_vmbus_channel_version_response));
-		sema_post(&msg_info->wait_sema);
+		hv_sema_post(&msg_info->wait_sema);
 	    }
 	}
     mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
@@ -735,13 +770,13 @@ vmbus_select_outgoing_channel(struct hv_vmbus_channel *primary)
 	int old_cpu_distance = 0;
 	int new_cpu_distance = 0;
 	int cur_vcpu = 0;
-	int smp_pro_id = PCPU_GET(cpuid);
+	int smp_pro_id = curcpu()->ci_cpuid;
 
 	if (TAILQ_EMPTY(&primary->sc_list_anchor)) {
 		return outgoing_channel;
 	}
 
-	if (smp_pro_id >= MAXCPU) {
+	if (smp_pro_id >= MAXCPUS) {
 		return outgoing_channel;
 	}
 
@@ -781,11 +816,11 @@ vmbus_scan(void)
 
 	mutex_enter(&vmbus_chwait_lock);
 	while ((vmbus_chancnt & VMBUS_CHANCNT_DONE) == 0)
-		mtx_sleep(&vmbus_chancnt, &vmbus_chwait_lock, 0, "waitch", 0);
+		mtsleep(&vmbus_chancnt, 0, "waitch", 0, &vmbus_chwait_lock);
 	chancnt = vmbus_chancnt & ~VMBUS_CHANCNT_DONE;
 
 	while (vmbus_devcnt != chancnt)
-		mtx_sleep(&vmbus_devcnt, &vmbus_chwait_lock, 0, "waitdev", 0);
+		mtsleep(&vmbus_devcnt, 0, "waitdev", 0, &vmbus_chwait_lock);
 	mutex_exit(&vmbus_chwait_lock);
 }
 
@@ -801,7 +836,7 @@ vmbus_get_subchan(struct hv_vmbus_channel *pri_chan, int subchan_cnt)
 	mutex_enter(&pri_chan->sc_lock);
 
 	while (pri_chan->subchan_cnt < subchan_cnt)
-		mtx_sleep(pri_chan, &pri_chan->sc_lock, 0, "subch", 0);
+		mtsleep(&pri_chan, 0, "subch", 0, &pri_chan->sc_lock);
 
 	i = 0;
 	TAILQ_FOREACH(chan, &pri_chan->sc_list_anchor, sc_list_entry) {
@@ -812,8 +847,7 @@ vmbus_get_subchan(struct hv_vmbus_channel *pri_chan, int subchan_cnt)
 		if (i == subchan_cnt)
 			break;
 	}
-	KASSERT(i == subchan_cnt, ("invalid subchan count %d, should be %d",
-	    pri_chan->subchan_cnt, subchan_cnt));
+	KASSERT(i == subchan_cnt);
 
 	mutex_exit(&pri_chan->sc_lock);
 
