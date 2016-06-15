@@ -87,6 +87,10 @@ void	vmbus_event_proc_compat(struct vmbus_softc *, int);
 /* From sys/kern/subr_param.c in FreeBSD */
 extern int vm_guest;
 
+extern kmutex_t	vmbus_chwait_lock;
+
+extern struct workqueue *hv_workqueue;
+
 enum VM_GUEST {VM_GUEST_NO = 0, VM_GUEST_VM, VM_GUEST_HV };
 
 /* From sys/amd64/include/xen/synch_bitops.h in FreeBSD */
