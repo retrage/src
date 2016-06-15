@@ -61,7 +61,9 @@ static int 	vmbus_channel_create_gpadl_header(
 			uint32_t*			message_count);
 
 static void 	vmbus_channel_set_event(hv_vmbus_channel* channel);
+/*
 static void	VmbusProcessChannelEvent(void* channel, int pending);
+*/
 
 /**
  *  @brief Trigger an event notification on the specified channel
@@ -218,6 +220,8 @@ hv_vmbus_channel_open(
 
 	new_channel->rxq = VMBUS_PCPU_GET(vmbus_get_softc(), event_tq,
 	    new_channel->target_cpu);
+
+
 	/*
 	TASK_INIT(&new_channel->channel_task, 0, VmbusProcessChannelEvent, new_channel);
 	*/
@@ -629,9 +633,6 @@ cleanup:
 static void
 hv_vmbus_channel_close_internal(hv_vmbus_channel *channel)
 {
-	/*
-	struct workqueue *rxq = channel->rxq;
-	*/
 	hv_vmbus_channel_close_channel* msg;
 	hv_vmbus_channel_msg_info* info;
 
@@ -997,6 +998,7 @@ hv_vmbus_channel_recv_packet_raw(
 /**
  * Process a channel event notification
  */
+/*
 static void
 VmbusProcessChannelEvent(void* context, int pending)
 {
@@ -1004,15 +1006,17 @@ VmbusProcessChannelEvent(void* context, int pending)
 	uint32_t bytes_to_read;
 	hv_vmbus_channel* channel = (hv_vmbus_channel*)context;
 	boolean_t is_batched_reading;
+*/
 
 	/**
 	 * Find the channel based on this relid and invokes
 	 * the channel callback to process the event
 	 */
-
+/*
 	if (channel == NULL) {
 		return;
 	}
+*/
 	/**
 	 * To deal with the race condition where we might
 	 * receive a packet while the relevant driver is
@@ -1021,10 +1025,11 @@ VmbusProcessChannelEvent(void* context, int pending)
 	 * will acquire the same channel lock to set the
 	 * callback to NULL. This closes the window.
 	 */
-
+/*
 	if (channel->on_channel_callback != NULL) {
 		arg = channel->channel_callback_context;
 		is_batched_reading = channel->batched_reading;
+*/
 		/*
 		 * Optimize host to guest signaling by ensuring:
 		 * 1. While reading the channel, we disable interrupts from
@@ -1035,6 +1040,7 @@ VmbusProcessChannelEvent(void* context, int pending)
 		 *    state is set we check to see if additional packets are
 		 *    available to read. In this case we repeat the process.
 		 */
+/*
 		do {
 			if (is_batched_reading)
 				hv_ring_buffer_read_begin(&channel->inbound);
@@ -1049,3 +1055,4 @@ VmbusProcessChannelEvent(void* context, int pending)
 		} while (is_batched_reading && (bytes_to_read != 0));
 	}
 }
+*/
