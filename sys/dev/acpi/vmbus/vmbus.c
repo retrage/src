@@ -8,6 +8,8 @@
 #include <sys/cpu.h>
 #include <sys/reboot.h>
 #include <sys/lock.h>
+#include <sys/workqueue.h>
+#include <sys/mutex.h>
 
 #include <dev/acpi/acpivar.h>
 
@@ -29,6 +31,10 @@ void hv_vector_handler(struct intrframe *);
 static int  vmbus_match(device_t, cfdata_t, void *);
 static void vmbus_attach(device_t, device_t, void *);
 static int  vmbus_detach(device_t, int);
+
+kmutex_t		vmbus_chwait_lock;
+
+struct workqueue	*hv_workqueue;
 
 struct vmbus_softc	*vmbus_sc;
 
@@ -97,10 +103,15 @@ hv_vmbus_isr(struct vmbus_softc *sc, struct intrframe *frame, int cpu)
 
 	msg = msg_base + HV_VMBUS_MESSAGE_SINT;
 	if (msg->header.message_type != HV_MESSAGE_TYPE_NONE) {
-		/*
-		taskqueue_enqueue(VMBUS_PCPU_GET(sc, message_tq, cpu),
-		    VMBUS_PCPU_PTR(sc, message_task, cpu));
-		*/
+		CPU_INFO_ITERATOR cii;
+		struct cpu_info *ci;
+
+		for (CPU_INFO_FOREACH(cii, ci)) {
+			if (cpu_index(ci) == cpu) {
+				workqueue_enqueue(VMBUS_PCPU_GET(sc, message_tq, cpu),
+					VMBUS_PCPU_GET(sc, message_task, cpu), ci);
+			}
+		}
 	}
 
 	return 0;
@@ -171,7 +182,6 @@ vmbus_synic_setup(void *xsc)
 	    ((VMBUS_PCPU_GET(sc, event_flag_dma.hv_paddr, cpu) >> PAGE_SHIFT) <<
 	     MSR_HV_SIEFP_PGSHIFT);
 	wrmsr(MSR_HV_SIEFP, val);
-
 
 	/*
 	 * Configure and unmask SINT for message and event flags.
@@ -293,47 +303,45 @@ vmbus_intr_setup(struct vmbus_softc *sc)
 {
 	CPU_INFO_ITERATOR cii;
 	struct cpu_info *ci;
+	struct workqueue *event_tq;
+	struct workqueue *message_tq;
+
+	/*
+	 * On FreeBSD, the driver has taskqueues for earch cpu.
+	 * On this driver, it has one workqueue with WQ_PERCPU.
+	 * Each sc->*_tq of CPU pointer is same.
+	 */
+
+	/*
+	 * Setup workqueue to handle events.  Task will be per-
+	 * channel.
+	 */
+	workqueue_create(&event_tq, "hyperv event",
+		NULL, NULL, PRI_NONE, IPL_HIGH, WQ_PERCPU | WQ_MPSAFE);
+
+	/*
+	 * Setup workqueue to handle messages.
+	 */
+	workqueue_create(&message_tq, "hyperv message",
+		NULL, NULL, PRI_NONE, IPL_HIGH, WQ_PERCPU | WQ_MPSAFE);
 
 	for (CPU_INFO_FOREACH(cii, ci)) {
 		char buf[MAXCOMLEN + 1];
-		/*
-		cpuset_t cpu_mask;
-		*/
+		u_int cpu_idx = cpu_index(ci);
 
 		/* Allocate an interrupt counter for Hyper-V interrupt */
-		snprintf(buf, sizeof(buf), "cpu%d:hyperv", cpu_index(ci));
-		evcnt_attach_dynamic(VMBUS_PCPU_PTR(sc, intr_cnt, cpu_index(ci)),
+		snprintf(buf, sizeof(buf), "cpu%d:hyperv", cpu_idx);
+		evcnt_attach_dynamic(VMBUS_PCPU_PTR(sc, intr_cnt, cpu_idx),
 		    EVCNT_TYPE_INTR, NULL, "hyperv", buf);
 
-		/*
-		 * Setup workqueue to handle events.  Task will be per-
-		 * channel.
-		 */
-		/*
-		VMBUS_PCPU_GET(sc, event_tq, cpu) = taskqueue_create_fast(
-		    "hyperv event", M_WAITOK, taskqueue_thread_enqueue,
-		    VMBUS_PCPU_PTR(sc, event_tq, cpu));
-		CPU_SETOF(cpu, &cpu_mask);
-		taskqueue_start_threads_cpuset(
-		    VMBUS_PCPU_PTR(sc, event_tq, cpu), 1, PI_NET, &cpu_mask,
-		    "hvevent%d", cpu);
-		*/
-
-		/*
-		 * Setup tasks and taskqueues to handle messages.
-		 */
-		/*
-		VMBUS_PCPU_GET(sc, message_tq, cpu) = taskqueue_create_fast(
-		    "hyperv msg", M_WAITOK, taskqueue_thread_enqueue,
-		    VMBUS_PCPU_PTR(sc, message_tq, cpu));
-		CPU_SETOF(cpu, &cpu_mask);
-		taskqueue_start_threads_cpuset(
-		    VMBUS_PCPU_PTR(sc, message_tq, cpu), 1, PI_NET, &cpu_mask,
-		    "hvmsg%d", cpu);
-		TASK_INIT(VMBUS_PCPU_PTR(sc, message_task, cpu), 0,
-		    vmbus_msg_task, sc);
-		*/
+		VMBUS_PCPU_GET(sc, event_tq, cpu_idx) = event_tq;
+		VMBUS_PCPU_GET(sc, message_tq, cpu_idx) = message_tq;
 	}
+
+	/*
+	TASK_INIT(VMBUS_PCPU_PTR(sc, message_task, cpu), 0,
+	    vmbus_msg_task, sc);
+	*/
 
 	/*
 	 * All Hyper-V ISR required resources are setup, now let's find a
@@ -364,20 +372,65 @@ vmbus_intr_teardown(struct vmbus_softc *sc)
 		sc->vmbus_idtvec = -1;
 	}
 
+	/* Destroy workqueue */
+	workqueue_destroy(VMBUS_PCPU_GET(sc, event_tq, 0));
+
+	/*
+	taskqueue_drain(VMBUS_PCPU_GET(sc, message_tq, cpu),
+	    VMBUS_PCPU_PTR(sc, message_task, cpu));
+	*/
+	workqueue_destroy(VMBUS_PCPU_GET(sc, message_tq, 0));
+
 	for (CPU_INFO_FOREACH(cii, ci)) {
-		/*
-		if (VMBUS_PCPU_GET(sc, event_tq, cpu) != NULL) {
-			taskqueue_free(VMBUS_PCPU_GET(sc, event_tq, cpu));
-			VMBUS_PCPU_GET(sc, event_tq, cpu) = NULL;
+		u_int cpu_idx = cpu_index(ci);
+
+		if (VMBUS_PCPU_GET(sc, event_tq, cpu_idx) != NULL) {
+			VMBUS_PCPU_GET(sc, event_tq, cpu_idx) = NULL;
 		}
-		if (VMBUS_PCPU_GET(sc, message_tq, cpu) != NULL) {
-			taskqueue_drain(VMBUS_PCPU_GET(sc, message_tq, cpu),
-			    VMBUS_PCPU_PTR(sc, message_task, cpu));
-			taskqueue_free(VMBUS_PCPU_GET(sc, message_tq, cpu));
-			VMBUS_PCPU_GET(sc, message_tq, cpu) = NULL;
+		if (VMBUS_PCPU_GET(sc, message_tq, cpu_idx) != NULL) {
+			VMBUS_PCPU_GET(sc, message_tq, cpu_idx) = NULL;
 		}
-		*/
 	}
+}
+
+/*
+static int
+vmbus_child_pnpinfo_str(device_t dev, device_t child, char *buf, size_t buflen)
+{
+	char guidbuf[40];
+	struct hv_device *dev_ctx = device_get_ivars(child);
+
+	if (dev_ctx == NULL)
+		return (0);
+
+	strlcat(buf, "classid=", buflen);
+	snprintf_hv_guid(guidbuf, sizeof(guidbuf), &dev_ctx->class_id);
+	strlcat(buf, guidbuf, buflen);
+
+	strlcat(buf, " deviceid=", buflen);
+	snprintf_hv_guid(guidbuf, sizeof(guidbuf), &dev_ctx->device_id);
+	strlcat(buf, guidbuf, buflen);
+
+	return (0);
+}
+*/
+
+struct hv_device *
+hv_vmbus_child_device_create(hv_guid type, hv_guid instance,
+    hv_vmbus_channel *channel)
+{
+	hv_device *child_dev;
+
+	/*
+	 * Allocate the new child device
+	 */
+	child_dev = malloc(sizeof(hv_device), M_DEVBUF, M_WAITOK | M_ZERO);
+
+	child_dev->channel = channel;
+	memcpy(&child_dev->class_id, &type, sizeof(hv_guid));
+	memcpy(&child_dev->device_id, &instance, sizeof(hv_guid));
+
+	return (child_dev);
 }
 
 int
@@ -391,6 +444,45 @@ snprintf_hv_guid(char *buf, size_t sz, const hv_guid *guid)
 		d[3], d[2], d[1], d[0], d[5], d[4], d[7], d[6],
 		d[8], d[9], d[10], d[11], d[12], d[13], d[14], d[15]);
 	return (cnt);
+}
+
+int
+hv_vmbus_child_device_register(struct hv_device *child_dev)
+{
+	/*
+	device_t child;
+	*/
+
+	if (bootverbose) {
+		char name[40];
+		snprintf_hv_guid(name, sizeof(name), &child_dev->class_id);
+		printf("VMBUS: Class ID: %s\n", name);
+	}
+
+	/*
+	child = device_add_child(vmbus_get_device(), NULL, -1);
+	child_dev->device = child;
+	device_set_ivars(child, child_dev);
+
+	return (0);
+	*/
+	return (0);
+}
+
+int
+hv_vmbus_child_device_unregister(struct hv_device *child_dev)
+{
+	int ret = 0;
+	/*
+	 * XXXKYS: Ensure that this is the opposite of
+	 * device_add_child()
+	 */
+/*
+	mtx_lock(&Giant);
+	ret = device_delete_child(vmbus_get_device(), child_dev->device);
+	mtx_unlock(&Giant);
+*/
+	return(ret);
 }
 
 static int
@@ -468,11 +560,9 @@ vmbus_bus_init(void)
 	else
 		sc->vmbus_event_proc = vmbus_event_proc;
 
-	/*
 	hv_vmbus_request_channel_offers();
 
 	vmbus_scan();
-	*/
 	/*
 	bus_generic_attach(sc->vmbus_dev);
 	device_printf(sc->vmbus_dev, "device scan, probe and attach done\n");
@@ -494,9 +584,14 @@ vmbus_event_proc_dummy(struct vmbus_softc *sc __unused, int cpu __unused)
 static void
 vmbus_attach(device_t parent, device_t self, void *aux)
 {
-	/* FreeBSD's implementation uses SYSINIT, but NetBSD does not have it. */
-
+	/*
+	 * FreeBSD's implementation uses SYSINIT,
+	 * but NetBSD does not have it.
+	 * */
 	vm_guest = VM_GUEST_HV;
+	mutex_init(&vmbus_chwait_lock, MUTEX_DEFAULT, IPL_NONE);
+	workqueue_create(&hv_workqueue, "hyperv workqueue", NULL, NULL, PRI_NONE,
+		IPL_HIGH, WQ_PERCPU | WQ_MPSAFE);
 
 	hyperv_init();
 
@@ -524,9 +619,8 @@ vmbus_detach(device_t self, int flags)
 	struct vmbus_softc *sc = device_private(self);
 	ipi_msg_t ipimsg = { .func = (ipi_func_t)vmbus_synic_teardown };
 
-	/*
 	hv_vmbus_release_unattached_channels();
-	*/
+
 	hv_vmbus_disconnect();
 
 	if (sc->vmbus_flags & VMBUS_FLAG_SYNIC) {
@@ -540,6 +634,9 @@ vmbus_detach(device_t self, int flags)
 
 	vmbus_intr_teardown(sc);
 	vmbus_dma_free(sc);
+
+	mutex_destroy(&vmbus_chwait_lock);
+	workqueue_destroy(hv_workqueue);
 
 	return (0);
 }
