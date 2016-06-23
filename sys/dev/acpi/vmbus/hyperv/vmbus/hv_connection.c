@@ -126,6 +126,7 @@ hv_vmbus_negotiate_version(hv_vmbus_channel_msg_info *msg_info,
 			msg_info,
 			msg_list_entry);
 		mutex_exit(&hv_vmbus_g_connection.channel_msg_lock);
+		printf("hv_vmbus_negotiate_version ret\n");
 		return (ret);
 	}
 
@@ -133,6 +134,7 @@ hv_vmbus_negotiate_version(hv_vmbus_channel_msg_info *msg_info,
 	 * Wait for the connection response
 	 */
 	ret = hv_sema_timedwait(&msg_info->wait_sema, 5 * hz); /* KYS 5 seconds */
+	printf("sema_timedwait in negotiate done: ret=%d\n", ret);
 
 	mutex_enter(&hv_vmbus_g_connection.channel_msg_lock);
 	TAILQ_REMOVE(
@@ -149,6 +151,8 @@ hv_vmbus_negotiate_version(hv_vmbus_channel_msg_info *msg_info,
 	} else {
 		ret = ECONNREFUSED;
 	}
+
+	printf("hv_vmbus_negotiate_version done\n");
 
 	return (ret);
 }
@@ -236,6 +240,8 @@ hv_vmbus_connect(void)
 	hv_sema_destroy(&msg_info->wait_sema);
 	kmem_free(msg_info, sizeof(hv_vmbus_channel_msg_info) +
 			sizeof(hv_vmbus_channel_initiate_contact));
+
+	printf("hv_vmbus_connect done\n");
 
 	return (0);
 
@@ -365,6 +371,8 @@ int hv_vmbus_post_message(void *buffer, size_t bufferLen)
 	int retries;
 	int ret;
 
+	printf("Enter hv_vmbus_post_message\n");
+
 	connId.as_uint32_t = 0;
 	connId.u.id = HV_VMBUS_MESSAGE_CONNECTION_ID;
 
@@ -375,8 +383,10 @@ int hv_vmbus_post_message(void *buffer, size_t bufferLen)
 	for (retries = 0; retries < 20; retries++) {
 		ret = hv_vmbus_post_msg_via_msg_ipc(connId, 1, buffer,
 						    bufferLen);
-		if (ret == HV_STATUS_SUCCESS)
+		if (ret == HV_STATUS_SUCCESS) {
+			printf("hv_vmbus_post_message returned\n");
 			return (0);
+		}
 
 		kpause("pstmsg", false, mstohz(time), NULL);
 		if (time < 1000 * 2)
@@ -384,6 +394,8 @@ int hv_vmbus_post_message(void *buffer, size_t bufferLen)
 	}
 
 	KASSERT(ret == HV_STATUS_SUCCESS);
+
+	printf("hv_vmbus_post_message done\n");
 
 	return (EAGAIN);
 }

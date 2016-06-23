@@ -218,6 +218,13 @@ IDTVEC_END(intr_lapic_tlb)
 
 #endif /* !XEN */
 
+IDTVEC(hv_vmbus_callback)
+	INTRENTRY
+	callq	_C_LABEL(hv_vector_handler)
+	jmp	_C_LABEL(Xdoreti)
+	INTRFASTEXIT
+IDTVEC_END(hv_vmbus_callback)
+
 #define voidop(num)
 
 #ifndef XEN

@@ -130,6 +130,7 @@ hv_vmbus_do_hypercall(uint64_t control, void* input, void* output)
 	__asm__ __volatile__ ("call *%3" : "=a"(hv_status):
 				"c" (control), "d" (input_address),
 				"m" (hypercall_page));
+	printf("Hypercall done: hv_status=%ld\n", hv_status);
 	return (hv_status);
 #else
 	uint32_t control_high = control >> 32;
@@ -194,6 +195,8 @@ hv_vmbus_post_msg_via_msg_ipc(
 		    HV_CALL_POST_MESSAGE, aligned_msg, 0) & 0xFFFF;
 
 	kmem_free((void *) addr, sizeof(struct alignedinput));
+
+	printf("hv_vmbus_post_msg_via_msg_ipc done: status=%d\n", status);
 
 	return (status);
 }

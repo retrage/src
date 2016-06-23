@@ -13,6 +13,8 @@
 
 #include <dev/acpi/acpivar.h>
 
+#include <machine/i82489var.h>
+
 #include <machine/cpufunc.h>
 
 #include <dev/acpi/vmbus/hyperv/include/hyperv_busdma.h>
@@ -26,7 +28,10 @@
 #define _COMPONENT	ACPI_BUS_COMPONENT
 ACPI_MODULE_NAME	("vmbus")
 
+/*
 void hv_vector_handler(struct intrframe *);
+*/
+void hv_vector_handler(void);
 
 static int  vmbus_match(device_t, cfdata_t, void *);
 static void vmbus_attach(device_t, device_t, void *);
@@ -118,10 +123,12 @@ hv_vmbus_isr(struct vmbus_softc *sc, struct intrframe *frame, int cpu)
 }
 
 void
-hv_vector_handler(struct intrframe *regs)
+hv_vector_handler(void)
 {
 	struct vmbus_softc *sc = vmbus_get_softc();
 	int cpu = cpu_index(curcpu());
+
+	printf("Enter hv_vector_handler\n");
 
 	/*
 	 * Disable preemption.
@@ -133,12 +140,17 @@ hv_vector_handler(struct intrframe *regs)
 	 */
 	(VMBUS_PCPU_GET(sc, intr_cnt, cpu).ev_count)++;
 
+	/*
 	hv_vmbus_isr(sc, regs, cpu);
+	*/
+	hv_vmbus_isr(sc, NULL, cpu);
 
 	/*
 	 * Enable preemption.
 	 */
 	kpreempt_enable();
+
+	printf("hv_vector_handler done\n");
 }
 
 static void
@@ -347,13 +359,16 @@ vmbus_intr_setup(struct vmbus_softc *sc)
 	 * All Hyper-V ISR required resources are setup, now let's find a
 	 * free IDT vector for Hyper-V ISR and set it up.
 	 */
+	/*
 	sc->vmbus_idtvec = idt_vec_alloc(0x00, 0xff);
 	if (sc->vmbus_idtvec < 0) {
 		device_printf(sc->vmbus_dev, "cannot find free IDT vector\n");
 		return ENXIO;
 	}
 	idt_vec_set(sc->vmbus_idtvec, hv_vmbus_callback);
+	*/
 
+	sc->vmbus_idtvec = LAPIC_HV_VECTOR;
 	if(bootverbose) {
 		device_printf(sc->vmbus_dev, "vmbus IDT vector %d\n",
 		    sc->vmbus_idtvec);
@@ -550,6 +565,7 @@ vmbus_bus_init(void)
 	 * Connect to VMBus in the root partition
 	 */
 	ret = hv_vmbus_connect();
+	printf("hv_vmbus_connect done\n");
 
 	if (ret != 0)
 		goto cleanup;

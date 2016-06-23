@@ -26,21 +26,36 @@
  * $FreeBSD: head/sys/dev/hyperv/vmbus/amd64/hv_vector.S 298022 2016-04-15 02:20:18Z sephe $
  */
 
-#include <machine/asmacros.h>
+#include <machine/asm.h>
+
+#define ALIGN_TEXT .align 16,0x90
+
+#include <machine/frameasm.h>
+#include <machine/segments.h>
+#include <machine/trap.h>
 #include <machine/specialreg.h>
 
-#include "assym.s"
+#include "assym.h"
 
 /*
  * This is the Hyper-V vmbus channel direct callback interrupt.
  * Only used when it is running on Hyper-V.
  */
+
 	.text
-	SUPERALIGN_TEXT
-IDTVEC(hv_vmbus_callback)
-	PUSH_FRAME
-	FAKE_MCOUNT(TF_RIP(%rsp))
+NENTRY(hv_vmbus_callback)
+	movq	(%rsp),%rcx
+	movq	8(%rsp),%r11
+	addq	$16,%rsp
+	pushq	$0  # Dummy error code
+	pushq	$T_ASTFLT
+	INTRENTRY
+	# sti??
 	movq	%rsp, %rdi
+	subq	$8, %rdi; /* don't forget if_ppl */
 	call	hv_vector_handler
-	MEXITCOUNT
-	jmp	doreti
+	testb	$SEL_RPL,TF_CS(%rsp)
+	jnz	doreti_checkast
+1:
+	INTRFASTEXIT
+END(hv_vmbus_callback)

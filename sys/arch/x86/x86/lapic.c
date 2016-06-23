@@ -220,6 +220,9 @@ lapic_boot_init(paddr_t lapic_base)
 
 	idt_vec_reserve(LAPIC_TIMER_VECTOR);
 	idt_vec_set(LAPIC_TIMER_VECTOR, Xintr_lapic_ltimer);
+
+	idt_vec_reserve(LAPIC_HV_VECTOR);
+	idt_vec_set(LAPIC_HV_VECTOR, Xhv_vmbus_callback);
 }
 
 static uint32_t

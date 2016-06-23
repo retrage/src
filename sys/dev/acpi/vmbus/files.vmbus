@@ -2,7 +2,7 @@
 device	vmbus
 attach	vmbus at acpinodebus
 file	dev/acpi/vmbus/vmbus.c		vmbus
-file	dev/acpi/vmbus/hyperv/vmbus/amd64/hv_vector.S	vmbus
+#file	dev/acpi/vmbus/hyperv/vmbus/amd64/hv_vector.S	vmbus
 file	dev/acpi/vmbus/hyperv/vmbus/hv_hv.c		vmbus
 file	dev/acpi/vmbus/hyperv/vmbus/hv_ring_buffer.c	vmbus
 file	dev/acpi/vmbus/hyperv/vmbus/hv_connection.c	vmbus

@@ -103,6 +103,8 @@ extern void Xintr_lapic3(void);
 extern void Xintr_lapic4(void);
 extern void Xintr_lapic5(void);
 
+extern void Xhv_vmbus_callback(void);
+#define LAPIC_HV_VECTOR			0x70
 
 struct cpu_info;
 
