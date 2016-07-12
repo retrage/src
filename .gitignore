@@ -1,0 +1,4 @@
+*\.bash
+obj/*
+tools/*/obj/*
+sys/arch/amd64/compile/HYPERV/*
