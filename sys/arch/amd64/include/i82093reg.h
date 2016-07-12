@@ -50,6 +50,7 @@
 	movq	IOAPIC_SC_DATA(%rdi),%r15			;\
 	movl	(%r15),%esi					;\
 	orl	$IOAPIC_REDLO_MASK,%esi				;\
+	andl	$~IOAPIC_REDLO_RIRR,%esi			;\
 	movl	%esi,(%r15)					;\
 	movq	IS_PIC(%r14),%rdi				;\
 	ioapic_asm_unlock(num)
@@ -67,6 +68,7 @@
 	movl	%esi, (%r15)					;\
 	movl	(%r13),%r12d					;\
 	andl	$~IOAPIC_REDLO_MASK,%r12d			;\
+	andl	$~IOAPIC_REDLO_RIRR,%r12d			;\
 	movl	%esi,(%r15)					;\
 	movl	%r12d,(%r13)					;\
 	movq	IS_PIC(%r14),%rdi				;\

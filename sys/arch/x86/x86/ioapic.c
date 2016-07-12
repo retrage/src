@@ -508,6 +508,7 @@ ioapic_hwmask(struct pic *pic, int pin)
 	flags = ioapic_lock(sc);
 	redlo = ioapic_read_ul(sc, IOAPIC_REDLO(pin));
 	redlo |= IOAPIC_REDLO_MASK;
+	redlo &= ~IOAPIC_REDLO_RIRR;
 	ioapic_write_ul(sc, IOAPIC_REDLO(pin), redlo);
 	ioapic_unlock(sc, flags);
 }
@@ -549,6 +550,7 @@ ioapic_hwunmask(struct pic *pic, int pin)
 	flags = ioapic_lock(sc);
 	redlo = ioapic_read_ul(sc, IOAPIC_REDLO(pin));
 	redlo &= ~IOAPIC_REDLO_MASK;
+	redlo &= ~IOAPIC_REDLO_RIRR;
 	ioapic_write_ul(sc, IOAPIC_REDLO(pin), redlo);
 	ioapic_unlock(sc, flags);
 }
