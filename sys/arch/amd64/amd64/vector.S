@@ -85,6 +85,8 @@
 #include "lapic.h"
 #include "assym.h"
 
+#include "vmbus.h"
+
 #include "amd64_trap.S"
 
 /*****************************************************************************/
@@ -201,6 +203,40 @@ IDTVEC(resume_lapic_ltimer)
 	INTRFASTEXIT
 IDTVEC_END(resume_lapic_ltimer)
 IDTVEC_END(intr_lapic_ltimer)
+
+#if NHYPERV > 0
+/*
+ * Hyperv event channel upcall interrupt handler.
+ * Only used when the hypervisor supports direct vector callbacks.
+ */
+IDTVEC(recurse_hyperv_upcall)
+	INTR_RECURSE_HWFRAME
+	pushq	$0
+	subq	$8,%rsp			/* unused __if_trapno */
+	INTRENTRY
+	jmp	1f
+IDTVEC(intr_hyperv_upcall)
+	pushq	$0
+	subq	$8,%rsp			/* unused __if_trapno */
+	INTRENTRY
+	movl	CPUVAR(ILEVEL),%ebx
+	cmpl	$IPL_NET,%ebx
+	jae	2f
+IDTVEC(resume_hyperv_upcall)
+1:
+	incl	CPUVAR(IDEPTH)
+	movl	$IPL_NET,CPUVAR(ILEVEL)
+	sti
+	cld
+	pushq	%rbx
+	call	_C_LABEL(hv_intr)
+	jmp	_C_LABEL(Xdoreti)
+2:
+	movq	$(1 << LIR_HYPERV),%rax
+	orq	%rax,CPUVAR(IPENDING)
+3:
+	INTRFASTEXIT
+#endif /* NHYPERV > 0 */
 #endif /* NLAPIC > 0 */
 
 #ifndef XEN

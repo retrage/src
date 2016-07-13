@@ -103,6 +103,13 @@ extern void Xintr_lapic3(void);
 extern void Xintr_lapic4(void);
 extern void Xintr_lapic5(void);
 
+/*
+ * Vector used for Hyper-V Interrupts.
+ */
+extern void Xintr_hyperv_upcall(void);
+extern void Xresume_hyperv_upcall(void);
+extern void Xrecurse_hyperv_upcall(void);
+#define LAPIC_HYPERV_VECTOR		0x71
 
 struct cpu_info;
 

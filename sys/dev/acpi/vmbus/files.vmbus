@@ -1,0 +1,6 @@
+#
+
+# vmbus
+device	vmbus
+attach	vmbus at acpinodebus
+file	dev/acpi/vmbus/pv/hyperv.c		vmbus	needs-flag

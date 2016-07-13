@@ -215,6 +215,11 @@ lapic_boot_init(paddr_t lapic_base)
 	idt_vec_reserve(LAPIC_TLB_VECTOR);
 	idt_vec_set(LAPIC_TLB_VECTOR, Xintr_lapic_tlb);
 #endif
+#if NHYPERV > 0
+	/* Hyper-V Interrupt Vector */
+	idt_vec_reserve(LAPIC_HYPERV_VECTOR);
+	idt_vec_set(LAPIC_HYPERV_VECTOR, Xintr_hyperv_upcall);
+#endif
 	idt_vec_reserve(LAPIC_SPURIOUS_VECTOR);
 	idt_vec_set(LAPIC_SPURIOUS_VECTOR, Xintrspurious);
 

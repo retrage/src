@@ -1,0 +1,8 @@
+ioconf vmbus
+
+include "conf/files"
+include "dev/acpi/files.acpi"
+
+pseudo-root acpi*
+
+vmbus* at acpi?

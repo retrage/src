@@ -166,6 +166,8 @@
 #include "ioapic.h"
 #include "ksyms.h"
 
+#include "vmbus.h"
+
 #include <sys/errno.h>
 #include <sys/syscall.h>
 
@@ -954,6 +956,19 @@ ENTRY(hypercall_page)
 .skip 0x1000
 END(hypercall_page)
 #endif /* XEN */
+
+/*
+#if NHYPERV > 0
+*/
+	/* Hypercall page needs to be page aligned */
+	.text
+	.align	NBPG, 0xcc
+	.globl	_C_LABEL(hv_hypercall_page)
+_C_LABEL(hv_hypercall_page):
+	.skip	0x1000, 0xcc
+/*
+#endif
+*/
 
 /*
  * int setjmp(label_t *)

@@ -203,6 +203,7 @@ SUBDIR+=	fujhk
 SUBDIR+=	hpacel
 SUBDIR+=	hpqlb
 SUBDIR+=	thinkpad
+SUBDIR+=	vmbus
 SUBDIR+=	wmidell
 SUBDIR+=	wmieeepc
 SUBDIR+=	wmihp
