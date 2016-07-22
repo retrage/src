@@ -204,21 +204,23 @@ IDTVEC(resume_lapic_ltimer)
 IDTVEC_END(resume_lapic_ltimer)
 IDTVEC_END(intr_lapic_ltimer)
 
-#if NHYPERV > 0
+#if NVMBUS > 0
 /*
  * Hyperv event channel upcall interrupt handler.
  * Only used when the hypervisor supports direct vector callbacks.
  */
 IDTVEC(recurse_hyperv_upcall)
 	INTR_RECURSE_HWFRAME
-	pushq	$0
-	subq	$8,%rsp			/* unused __if_trapno */
-	INTRENTRY
+	pushq	$0		
+	pushq	$T_ASTFLT
+	INTRENTRY		
 	jmp	1f
+IDTVEC_END(recurse_hyperv_upcall)
+
 IDTVEC(intr_hyperv_upcall)
-	pushq	$0
-	subq	$8,%rsp			/* unused __if_trapno */
-	INTRENTRY
+	pushq	$0		
+	pushq	$T_ASTFLT
+	INTRENTRY		
 	movl	CPUVAR(ILEVEL),%ebx
 	cmpl	$IPL_NET,%ebx
 	jae	2f
@@ -227,16 +229,18 @@ IDTVEC(resume_hyperv_upcall)
 	incl	CPUVAR(IDEPTH)
 	movl	$IPL_NET,CPUVAR(ILEVEL)
 	sti
-	cld
 	pushq	%rbx
+	movq	%rsp,%rsi
+	xorq	%rdi,%rdi
 	call	_C_LABEL(hv_intr)
 	jmp	_C_LABEL(Xdoreti)
 2:
-	movq	$(1 << LIR_HYPERV),%rax
-	orq	%rax,CPUVAR(IPENDING)
-3:
+	orl	$(1 << LIR_HYPERV),CPUVAR(IPENDING)
 	INTRFASTEXIT
-#endif /* NHYPERV > 0 */
+IDTVEC_END(resume_hyperv_upcall)
+IDTVEC_END(intr_hyperv_upcall)
+
+#endif /* NVMBUS > 0 */
 #endif /* NLAPIC > 0 */
 
 #ifndef XEN

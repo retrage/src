@@ -1275,7 +1275,7 @@ struct intrhand fake_softbio_intrhand;
 struct intrhand fake_timer_intrhand;
 struct intrhand fake_ipi_intrhand;
 struct intrhand fake_preempt_intrhand;
-#if NHYPERV > 0
+#if NVMBUS > 0
 struct intrhand fake_hyperv_intrhand;
 #endif
 
@@ -1344,8 +1344,8 @@ cpu_intr_init(struct cpu_info *ci)
 		    NULL, device_xname(ci->ci_dev), x86_ipi_names[i]);
 #endif
 
-#if NHYPERV > 0
-	isp = malloc(sizeof (struct intrsource), M_DEVBUF, M_NOWAIT|M_ZERO);
+#if NVMBUS > 0
+	isp = kmem_zalloc(sizeof(*isp), KM_SLEEP);
 	if (isp == NULL)
 		panic("can't allocate fixed interrupt source");
 	isp->is_recurse = Xrecurse_hyperv_upcall;
@@ -1355,7 +1355,8 @@ cpu_intr_init(struct cpu_info *ci)
 	isp->is_pic = &local_pic;
 	ci->ci_isources[LIR_HYPERV] = isp;
 #endif
-#endif
+
+#endif /* NLAPIC */
 
 	isp = kmem_zalloc(sizeof(*isp), KM_SLEEP);
 	KASSERT(isp != NULL);

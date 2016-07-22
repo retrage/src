@@ -958,7 +958,7 @@ END(hypercall_page)
 #endif /* XEN */
 
 /*
-#if NHYPERV > 0
+#if NVMBUS > 0
 */
 	/* Hypercall page needs to be page aligned */
 	.text
