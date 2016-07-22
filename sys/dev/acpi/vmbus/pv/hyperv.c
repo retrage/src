@@ -56,6 +56,7 @@
 #include <sys/kernel.h>
 #include <sys/device.h>
 #include <sys/timetc.h>
+#include <sys/intr.h>
 /*
 #include <sys/task.h>
 */
@@ -124,10 +125,7 @@ struct hv_softc *hv_sc;
 
 int	hv_match(device_t parent, cfdata_t match, void *aux);
 void	hv_attach(device_t parent, device_t self, void *aux);
-/*
 void	hv_deferred(void *);
-*/
-bool	hv_deferred(device_t, const pmf_qual_t *);
 void	hv_fake_version(struct hv_softc *);
 u_int	hv_gettime(struct timecounter *);
 int	hv_init_hypercall(struct hv_softc *);
@@ -272,40 +270,25 @@ hv_attach(device_t parent, device_t self, void *aux)
 	if (hv_init_interrupts(sc))
 		return;
 
-	/*
-	startuphook_establish(hv_deferred, sc);
-	*/
 	/* XXX: Where is startuphook alternative in NetBSD? */
-	if (!pmf_device_register(self, NULL, hv_deferred)) {
-		printf("Could not establish a power handler\n");
-		return;
-	}
+	startuphook_establish(hv_deferred, sc);
 }
 
-/*
 void
 hv_deferred(void *arg)
-*/
-bool
-hv_deferred(device_t self, const pmf_qual_t *qual)
 {
-	/*
 	struct hv_softc *sc = arg;
-	*/
-	struct hv_softc *sc = device_private(self);
 
 	if (hv_vmbus_connect(sc))
-		return false;
+		return;
 
 	if (hv_channel_scan(sc))
-		return false;
+		return;
 
 	hv_attach_internal(sc);
 
 	if (hv_attach_devices(sc))
-		return false;
-
-	return true;
+		return;
 }
 
 void
@@ -852,7 +835,7 @@ hv_vmbus_connect(struct hv_softc *sc)
 		sc->sc_monitor[0] = NULL;
 	}
 	if (sc->sc_monitor[1]) {
-		kmem_free(sc->sc_monitor[0], PAGE_SIZE);
+		kmem_free(sc->sc_monitor[1], PAGE_SIZE);
 		sc->sc_monitor[1] = NULL;
 	}
 	return (-1);
