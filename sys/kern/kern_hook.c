@@ -106,6 +106,39 @@ hook_proc_run(hook_list_t *list, struct proc *p)
 }
 
 /*
+ * "Startup hook" types, functions, and variables.
+ *
+ * Each startup hook is removed and freed from the list before it's run,
+ * so that it won't be run again.
+ */
+
+static hook_list_t startuphook_list = LIST_HEAD_INITIALIZER(startuphook_list);
+
+void *
+startuphook_establish(void (*fn)(void *), void *arg)
+{
+	return hook_establish(&startuphook_list, fn, arg);
+}
+
+void
+startuphook_disestablish(void *vhook)
+{
+	hook_disestablish(&startuphook_list, vhook);
+}
+
+void
+dostartuphooks(void)
+{
+	struct hook_desc *dp;
+
+	while ((dp = LIST_FIRST(&startuphook_list)) != NULL) {
+		LIST_REMOVE(dp, hk_list);
+		(*dp->hk_fn)(dp->hk_arg);
+		free(dp, M_DEVBUF);
+	}
+}
+
+/*
  * "Shutdown hook" types, functions, and variables.
  *
  * Should be invoked immediately before the

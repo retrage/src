@@ -326,6 +326,13 @@ void	critpollhook_disestablish(void *);
 void	docritpollhooks(void);
 
 /*
+ * Startup hooks.
+ */
+void	*startuphook_establish(void (*)(void *), void *);
+void	startuphook_disestablish(void *);
+void	dostartuphooks(void);
+
+/*
  * Shutdown hooks.  Functions to be run with all interrupts disabled
  * immediately before the system is halted or rebooted.
  */

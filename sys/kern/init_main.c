@@ -607,6 +607,8 @@ main(void)
 
 	sysctl_finalize();
 
+	dostartuphooks();
+
 	/*
 	 * Now that autoconfiguration has completed, we can determine
 	 * the root and dump devices.
