@@ -222,12 +222,12 @@ IDTVEC(intr_hyperv_upcall)
 	pushq	$T_ASTFLT
 	INTRENTRY		
 	movl	CPUVAR(ILEVEL),%ebx
-	cmpl	$IPL_NET,%ebx
+	cmpl	$IPL_HYPERV,%ebx
 	jae	2f
 IDTVEC(resume_hyperv_upcall)
 1:
 	incl	CPUVAR(IDEPTH)
-	movl	$IPL_NET,CPUVAR(ILEVEL)
+	movl	$IPL_HYPERV,CPUVAR(ILEVEL)
 	sti
 	pushq	%rbx
 	movq	%rsp,%rsi

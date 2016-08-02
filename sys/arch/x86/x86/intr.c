@@ -1350,7 +1350,7 @@ cpu_intr_init(struct cpu_info *ci)
 		panic("can't allocate fixed interrupt source");
 	isp->is_recurse = Xrecurse_hyperv_upcall;
 	isp->is_resume = Xresume_hyperv_upcall;
-	fake_hyperv_intrhand.ih_level = IPL_NET;
+	fake_hyperv_intrhand.ih_level = IPL_HYPERV;
 	isp->is_handlers = &fake_hyperv_intrhand;
 	isp->is_pic = &local_pic;
 	ci->ci_isources[LIR_HYPERV] = isp;

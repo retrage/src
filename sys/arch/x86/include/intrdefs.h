@@ -10,10 +10,11 @@
 #define	IPL_SOFTBIO	0x3	/* block I/O passdown */
 #define	IPL_SOFTNET	0x4	/* protocol stacks */
 #define	IPL_SOFTSERIAL	0x5	/* serial passdown */
-#define	IPL_VM		0x6	/* low I/O, memory allocation */
-#define IPL_SCHED	0x7	/* medium I/O, scheduler, clock */
-#define	IPL_HIGH	0x8	/* high I/O, statclock, IPIs */
-#define	NIPL		9
+#define	IPL_HYPERV	0x6	/* Hyper-V specific bus */
+#define	IPL_VM		0x7	/* low I/O, memory allocation */
+#define IPL_SCHED	0x8	/* medium I/O, scheduler, clock */
+#define	IPL_HIGH	0x9	/* high I/O, statclock, IPIs */
+#define	NIPL		10
 
 /* Interrupt sharing types. */
 #define	IST_NONE	0	/* none */

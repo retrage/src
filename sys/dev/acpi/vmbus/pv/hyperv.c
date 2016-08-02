@@ -390,10 +390,10 @@ hv_init_interrupts(struct hv_softc *sc)
 	sc->sc_idtvec = LAPIC_HYPERV_VECTOR;
 
 	TAILQ_INIT(&sc->sc_reqs);
-	mutex_init(&sc->sc_reqlck, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&sc->sc_reqlck, MUTEX_DEFAULT, IPL_HYPERV);
 
 	TAILQ_INIT(&sc->sc_rsps);
-	mutex_init(&sc->sc_rsplck, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&sc->sc_rsplck, MUTEX_DEFAULT, IPL_HYPERV);
 
 	sc->sc_simp[cpu] = kmem_zalloc(PAGE_SIZE, KM_NOSLEEP);
 	if (sc->sc_simp[cpu] == NULL) {
@@ -821,6 +821,8 @@ hv_vmbus_connect(struct hv_softc *sc)
 		goto errout;
 	}
 
+	printf("hv_vmbus_connect ex\n");
+
 	return (0);
 
  errout:
@@ -1026,7 +1028,7 @@ hv_channel_scan(struct hv_softc *sc)
 	struct hv_offer *co;
 
 	SIMPLEQ_INIT(&sc->sc_offers);
-	mutex_init(&sc->sc_offerlck, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&sc->sc_offerlck, MUTEX_DEFAULT, IPL_HYPERV);
 
 	hdr.message_type = HV_CHANMSG_REQUEST_OFFERS;
 	hdr.padding = 0;
@@ -1042,7 +1044,7 @@ hv_channel_scan(struct hv_softc *sc)
 		tsleep(offer, PRIBIO, "hvoffers", 1);
 
 	TAILQ_INIT(&sc->sc_channels);
-	mutex_init(&sc->sc_channelck, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&sc->sc_channelck, MUTEX_DEFAULT, IPL_HYPERV);
 
 	mutex_enter(&sc->sc_offerlck);
 	while (!SIMPLEQ_EMPTY(&sc->sc_offers)) {
@@ -1177,14 +1179,14 @@ hv_channel_ring_create(struct hv_channel *ch, uint32_t sndbuflen,
 	ch->ch_wrd.rd_ring = (struct hv_ring_buffer *)ch->ch_ring;
 	ch->ch_wrd.rd_size = sndbuflen;
 	ch->ch_wrd.rd_data_size = sndbuflen - sizeof(struct hv_ring_buffer);
-	mutex_init(&ch->ch_wrd.rd_lock, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&ch->ch_wrd.rd_lock, MUTEX_DEFAULT, IPL_HYPERV);
 
 	memset(&ch->ch_rrd, 0, sizeof(ch->ch_rrd));
 	ch->ch_rrd.rd_ring = (struct hv_ring_buffer *)((uint8_t *)ch->ch_ring +
 	    sndbuflen);
 	ch->ch_rrd.rd_size = rcvbuflen;
 	ch->ch_rrd.rd_data_size = rcvbuflen - sizeof(struct hv_ring_buffer);
-	mutex_init(&ch->ch_rrd.rd_lock, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&ch->ch_rrd.rd_lock, MUTEX_DEFAULT, IPL_HYPERV);
 
 	if (hv_handle_alloc(ch, ch->ch_ring, sndbuflen + rcvbuflen,
 	    &ch->ch_ring_hndl)) {
@@ -1999,7 +2001,7 @@ hv_attach_devices(struct hv_softc *sc)
 	struct hv_channel *ch;
 
 	SLIST_INIT(&sc->sc_devs);
-	mutex_init(&sc->sc_devlck, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&sc->sc_devlck, MUTEX_DEFAULT, IPL_HYPERV);
 
 	TAILQ_FOREACH(ch, &sc->sc_channels, ch_entry) {
 		if (ch->ch_state != HV_CHANSTATE_OFFERED)
