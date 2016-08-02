@@ -88,31 +88,6 @@
 #define _COMPONENT	ACPI_BUS_COMPONENT
 ACPI_MODULE_NAME	("vmbus")
 
-#ifdef MULTIPROCESSOR
-#define LOCK "lock"
-#else
-#define LOCK
-#endif
-
-static __inline void
-x86_atomic_setbits_u32(volatile u_int32_t *ptr, u_int32_t bits)
-{
-	__asm volatile(LOCK " orl %1,%0" :  "=m" (*ptr) : "ir" (bits));
-}
-
-static inline unsigned long
-_atomic_add_int_nv(volatile unsigned int *p, unsigned int v)
-{
-	unsigned int rv = v;
-
-	__asm volatile(LOCK " xaddl %0,%1"
-	    : "+a" (rv), "+m" (*p));
-
-	return (rv + v);
-}
-#define atomic_add_int_nv(_p, _v) _atomic_add_int_nv(_p, _v)
-#define atomic_setbits_int x86_atomic_setbits_u32
-#define atomic_inc_int_nv(_p) atomic_add_int_nv((_p), 1)
 #define CPU_INFO_UNIT(ci) ((ci)->ci_dev ? (ci)->ci_dev->dv_unit : 0)
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 
@@ -741,7 +716,7 @@ hv_channel_offer(struct hv_softc *sc, struct hv_channel_msg_header *hdr)
 void
 hv_channel_delivered(struct hv_softc *sc, struct hv_channel_msg_header *hdr)
 {
-	atomic_setbits_int(&sc->sc_flags, HSF_OFFERS_DELIVERED);
+	atomic_or_32(&sc->sc_flags, HSF_OFFERS_DELIVERED);
 	wakeup(hdr);
 }
 
@@ -1600,7 +1575,7 @@ hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
 		}
 	}
 
-	*handle = atomic_inc_int_nv(&sc->sc_handle);
+	*handle = atomic_inc_32_nv(&sc->sc_handle);
 
 	hdr->header.message_type = HV_CHANMSG_GPADL_HEADER;
 	hdr->child_rel_id = ch->ch_relid;
