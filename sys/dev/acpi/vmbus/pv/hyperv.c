@@ -796,8 +796,6 @@ hv_vmbus_connect(struct hv_softc *sc)
 		goto errout;
 	}
 
-	printf("hv_vmbus_connect ex\n");
-
 	return (0);
 
  errout:
