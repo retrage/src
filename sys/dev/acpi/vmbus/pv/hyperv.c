@@ -572,6 +572,8 @@ hv_intr(void)
 {
 	struct hv_softc *sc = hv_sc;
 
+	printf("hv_intr\n");
+
 	hv_event_intr(sc);
 	hv_message_intr(sc);
 }
@@ -584,7 +586,7 @@ hv_event_intr(struct hv_softc *sc)
 	int cpu = CPU_INFO_UNIT(ci);
 	int bit, dword, maxdword, relid;
 	struct hv_channel *ch;
-	uint32_t *revents;
+	uint32_t *revents, pending;
 
 	evt = (struct hv_synic_event_flags *)sc->sc_siep[cpu] + HV_MESSAGE_SINT;
 	if ((sc->sc_proto == HV_VMBUS_VERSION_WS2008) ||
@@ -609,8 +611,9 @@ hv_event_intr(struct hv_softc *sc)
 	for (dword = 0; dword < maxdword; dword++) {
 		if (revents[dword] == 0)
 			continue;
-		for (bit = 0; bit < 32; bit++) {
-			if (!atomic_clearbit_ptr(&revents[dword], bit))
+		pending = atomic_swap_uint(&revents[dword], 0);
+		for (bit = 0; pending > 0; pending >>= 1, bit++) {
+			if ((pending & 1) == 0)
 				continue;
 			relid = (dword << 5) + bit;
 			/* vmbus channel protocol message */
@@ -716,6 +719,7 @@ hv_channel_offer(struct hv_softc *sc, struct hv_channel_msg_header *hdr)
 void
 hv_channel_delivered(struct hv_softc *sc, struct hv_channel_msg_header *hdr)
 {
+	printf("hv_channel_delivered\n");
 	atomic_or_32(&sc->sc_flags, HSF_OFFERS_DELIVERED);
 	wakeup(hdr);
 }
@@ -773,8 +777,11 @@ hv_vmbus_connect(struct hv_softc *sc)
 
 	memset(&rsp, 0, sizeof(rsp));
 
+	struct cpu_info *ci = curcpu();
+
 	for (i = 0; versions[i] != HV_VMBUS_VERSION_INVALID; i++) {
 		cmd.vmbus_version_requested = versions[i];
+		printf("hv_vmbus_connect: ilevel=%d\n", ci->ci_ilevel);
 		if (hv_cmd(sc, &cmd, sizeof(cmd), &rsp, sizeof(rsp),
 		    HCF_NOSLEEP)) {
 			DPRINTF("%s: INITIATED_CONTACT failed\n",
@@ -998,6 +1005,10 @@ hv_channel_scan(struct hv_softc *sc)
 {
 	struct hv_channel_msg_header hdr;
 	struct hv_channel_offer_channel rsp, *offer;
+	/*
+	struct hv_channel_offer_channel rsp;
+	const char *offer = "hvchanscan";
+	*/
 	struct hv_offer *co;
 
 	SIMPLEQ_INIT(&sc->sc_offers);
@@ -1006,18 +1017,24 @@ hv_channel_scan(struct hv_softc *sc)
 	hdr.message_type = HV_CHANMSG_REQUEST_OFFERS;
 	hdr.padding = 0;
 
-	offer = NULL;
+	offer = &rsp;
 
 	if (hv_cmd(sc, &hdr, sizeof(hdr), &rsp, sizeof(rsp), HCF_NOREPLY)) {
 		DPRINTF("%s: REQUEST_OFFERS failed\n", sc->sc_dev.dv_xname);
 		return (-1);
 	}
 
-	while ((sc->sc_flags & HSF_OFFERS_DELIVERED) == 0)
+	/* FIXME: the flag does not set to 0 */
+	/* so the interrput is blocked */
+	while ((sc->sc_flags & HSF_OFFERS_DELIVERED) == 0) {
+		// THE HANG is occured here!!
 		tsleep(offer, PRIBIO, "hvoffers", 1);
+	}
 
 	TAILQ_INIT(&sc->sc_channels);
 	mutex_init(&sc->sc_channelck, MUTEX_DEFAULT, IPL_HYPERV);
+
+	//printf("hv_channel_scan e\n");
 
 	mutex_enter(&sc->sc_offerlck);
 	while (!SIMPLEQ_EMPTY(&sc->sc_offers)) {
@@ -1025,12 +1042,16 @@ hv_channel_scan(struct hv_softc *sc)
 		SIMPLEQ_REMOVE_HEAD(&sc->sc_offers, co_entry);
 		mutex_exit(&sc->sc_offerlck);
 
+		//printf("hv_channel_scan f\n");
 		hv_process_offer(sc, co);
+		//printf("hv_channel_scan g\n");
 		kmem_free(co, sizeof(*co));
 
 		mutex_enter(&sc->sc_offerlck);
 	}
 	mutex_exit(&sc->sc_offerlck);
+
+	//printf("hv_channel_scan h\n");
 
 	return (0);
 }

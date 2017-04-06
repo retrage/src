@@ -1324,3 +1324,7 @@ options 	PAX_MPROTECT_DEBUG=1	# PaX mprotect debug
 options 	PAX_ASLR=1		# PaX Address Space Layout Randomization
 
 vmbus0 at acpi?
+
+options INTRDEBUG
+options INTR_DEBUG
+options SPLDEBUG

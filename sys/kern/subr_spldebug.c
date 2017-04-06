@@ -71,6 +71,8 @@ spldebug_lower(int ipl)
 {
 	u_int cidx;
 
+	printf("spldebug_lower: ipl=%d\n", ipl);
+
 	if (!spldebug)
 		return;
 
@@ -95,6 +97,8 @@ spldebug_raise(int ipl)
 	int i;
 	u_int cidx;
 	void **retaddrs;
+
+	printf("spldebug_raise: ipl=%d\n", ipl);
 
 	if (!spldebug)
 		return;
